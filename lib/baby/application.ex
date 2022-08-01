@@ -7,6 +7,14 @@ defmodule Baby.Application do
 
   @impl true
   def start(_type, _args) do
+    :ranch.start_listener(
+      :baby,
+      :ranch_tcp,
+      [port: Application.get_env(:baby, :port)],
+      Baby.Connection,
+      Application.get_env(:baby, :identity)
+    )
+
     children = [
       # Starts a worker by calling: Baby.Worker.start_link(arg)
       # {Baby.Worker, arg}
