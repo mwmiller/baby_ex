@@ -36,9 +36,11 @@ defmodule Baby.Connection do
   def init(opts) do
     identity = Keyword.get(opts, :identity)
 
-    {:ok, their_ip} = opts |> Keyword.get(:host) |> :binary.bin_to_list() |> :inet.parse_address()
-
-    {:ok, socket} = :gen_tcp.connect(their_ip, Keyword.get(opts, :port), [:binary, active: :once])
+    {:ok, socket} =
+      :gen_tcp.connect(Keyword.get(opts, :host), Keyword.get(opts, :port), [
+        :binary,
+        active: :once
+      ])
 
     Logger.debug("SOCKET init")
 
@@ -128,6 +130,7 @@ defmodule Baby.Connection do
 
   def handle_event(:internal, :data, :auth, %{pkt: {2, _}} = conn_info) do
     sig = unpack_nonce_box(conn_info)
+    whosit = Baobab.b62identity(conn_info.their_pk)
 
     case Kcl.valid_signature?(
            sig,
@@ -135,11 +138,11 @@ defmodule Baby.Connection do
            conn_info.their_pk
          ) do
       false ->
-        Logger.debug("Auth denied")
+        Logger.debug(["Auth denied: ", whosit])
         disconnect(conn_info)
 
       true ->
-        Logger.debug("Auth accepted")
+        Logger.info(["Connected to: ", whosit])
 
         {:next_state, :replicate,
          Map.drop(conn_info, [
@@ -149,7 +152,8 @@ defmodule Baby.Connection do
            :our_epk,
            :their_pk,
            :their_epk
-         ]), [{:next_event, :internal, :send_have}]}
+         ])
+         |> Map.merge(%{peer: whosit}), [{:next_event, :internal, :send_have}]}
     end
   end
 
@@ -256,7 +260,11 @@ defmodule Baby.Connection do
   end
 
   defp disconnect(conn_info) do
-    Logger.debug("Connection closing")
+    case Map.fetch(conn_info, :peer) do
+      {:ok, peer} -> Logger.info(["Connection closing: ", peer])
+      :error -> :ok
+    end
+
     close_connection(conn_info)
     {:next_state, :disconnected, %{}, []}
   end
