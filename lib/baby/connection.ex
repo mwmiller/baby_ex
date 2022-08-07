@@ -130,7 +130,7 @@ defmodule Baby.Connection do
 
   def handle_event(:internal, :data, :auth, %{pkt: {2, _}} = conn_info) do
     sig = unpack_nonce_box(conn_info)
-    whosit = Baobab.b62identity(conn_info.their_pk)
+    whosit = "~" <> (conn_info.their_pk |> Baobab.b62identity() |> String.slice(0..6))
 
     case Kcl.valid_signature?(
            sig,
