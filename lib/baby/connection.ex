@@ -216,7 +216,7 @@ defmodule Baby.Connection do
           {:ok, decoded, ""} ->
             Logger.debug([
               conn_info.short_peer,
-              " → bamboo list: ",
+              " → BAMB: ",
               length(decoded) |> Integer.to_string()
             ])
 
@@ -265,11 +265,18 @@ defmodule Baby.Connection do
   defp send_our([], _), do: :ok
 
   defp send_our([[a, l] | rest], conn_info) do
-    a
-    |> Baobab.full_log(log_id: l, format: :binary)
+    log = Baobab.full_log(a, log_id: l, format: :binary)
+
+    log
     |> CBOR.encode()
     |> Stlv.encode(8)
     |> pack_and_ship_nonce_box(conn_info, 3)
+
+    Logger.debug([
+      conn_info.short_peer,
+      " ← BAMB: ",
+      length(log) |> Integer.to_string()
+    ])
 
     send_our(rest, conn_info)
   end
