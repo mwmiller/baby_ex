@@ -75,8 +75,8 @@ defmodule Baby.Connection do
     {esk, epk} = Kcl.generate_key_pair(:encrypt)
 
     whosit =
-      case Map.fetch(conn_info, :peer) do
-        {:ok, peer} -> peer
+      case Map.fetch(conn_info, :short_peer) do
+        {:ok, them} -> them
         :error -> "~unknown"
       end
 
@@ -92,18 +92,23 @@ defmodule Baby.Connection do
   def handle_event(:internal, :data, :hello, %{pkt: {1, hello}} = conn_info) do
     case hello do
       <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> ->
-        whosit = "~" <> (their_pk |> Baobab.b62identity() |> String.slice(0..6))
+        peer = their_pk |> Baobab.b62identity()
+        short_peer = "~" <> (peer |> String.slice(0..6))
 
         case Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
           false ->
             disconnect(conn_info)
 
           true ->
-            Logger.debug([whosit, " → HELLO"])
+            Logger.debug([short_peer, " → HELLO"])
 
             {:next_state, :auth,
-             Map.merge(conn_info, %{peer: whosit, their_pk: their_pk, their_epk: their_epk}),
-             [{:next_event, :internal, :send_auth}]}
+             Map.merge(conn_info, %{
+               short_peer: short_peer,
+               peer: peer,
+               their_pk: their_pk,
+               their_epk: their_epk
+             }), [{:next_event, :internal, :send_auth}]}
         end
 
       _ ->
@@ -132,7 +137,7 @@ defmodule Baby.Connection do
     |> Kcl.sign(conn_info.our_sk)
     |> pack_and_ship_nonce_box(nci, 2)
 
-    Logger.debug([conn_info.peer, " ← AUTH"])
+    Logger.debug([conn_info.short_peer, " ← AUTH"])
 
     {:keep_state, nci}
   end
@@ -146,11 +151,11 @@ defmodule Baby.Connection do
            conn_info.their_pk
          ) do
       false ->
-        Logger.debug([conn_info.peer, " → bad AUTH"])
+        Logger.debug([conn_info.short_peer, " → bad AUTH"])
         disconnect(conn_info)
 
       true ->
-        Logger.info([conn_info.peer, " connected"])
+        Logger.info([conn_info.short_peer, " connected"])
 
         {:next_state, :replicate,
          Map.drop(conn_info, [
@@ -170,7 +175,7 @@ defmodule Baby.Connection do
     |> Stlv.encode(1)
     |> pack_and_ship_nonce_box(conn_info, 3)
 
-    Logger.debug([conn_info.peer, " ← HAVE"])
+    Logger.debug([conn_info.short_peer, " ← HAVE"])
 
     {:keep_state_and_data, []}
   end
@@ -180,7 +185,7 @@ defmodule Baby.Connection do
       {1, data, ""} ->
         case CBOR.decode(data) do
           {:ok, decoded, ""} ->
-            Logger.debug([conn_info.peer, " → HAVE"])
+            Logger.debug([conn_info.short_peer, " → HAVE"])
             request_their(decoded, conn_info, [])
 
           _ ->
@@ -190,7 +195,7 @@ defmodule Baby.Connection do
       {2, data, ""} ->
         case CBOR.decode(data) do
           {:ok, decoded, ""} ->
-            Logger.debug([conn_info.peer, " → WANT"])
+            Logger.debug([conn_info.short_peer, " → WANT"])
             send_our(decoded, conn_info)
 
           _ ->
@@ -201,7 +206,7 @@ defmodule Baby.Connection do
         case CBOR.decode(data) do
           {:ok, decoded, ""} ->
             Logger.debug([
-              conn_info.peer,
+              conn_info.short_peer,
               " → bamboo list: ",
               length(decoded) |> Integer.to_string()
             ])
@@ -227,7 +232,7 @@ defmodule Baby.Connection do
     |> Stlv.encode(2)
     |> pack_and_ship_nonce_box(conn_info, 3)
 
-    Logger.debug([conn_info.peer, " ← WANT"])
+    Logger.debug([conn_info.short_peer, " ← WANT"])
   end
 
   defp request_their([[them, l, _] | rest], %{peer: them} = conn_info, acc) do
@@ -311,7 +316,7 @@ defmodule Baby.Connection do
   defp disconnect(conn_info) do
     close_connection(conn_info)
 
-    case Map.fetch(conn_info, :peer) do
+    case Map.fetch(conn_info, :short_peer) do
       {:ok, peer} -> Logger.info([peer <> " disconnected"])
       :error -> :ok
     end
