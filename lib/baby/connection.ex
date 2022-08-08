@@ -17,6 +17,7 @@ defmodule Baby.Connection do
 
   @impl true
   def init({ref, transport, identity}) do
+    Baobab.db(:all, :open)
     {:ok, socket} = :ranch.handshake(ref)
     :ok = transport.setopts(socket, active: :once)
 
@@ -34,6 +35,8 @@ defmodule Baby.Connection do
   end
 
   def init(opts) do
+    Baobab.db(:all, :open)
+
     identity = Keyword.get(opts, :identity)
 
     {:ok, socket} =
@@ -46,6 +49,12 @@ defmodule Baby.Connection do
 
     {:ok, :connected, initial_conn_info(identity, socket, nil),
      [{:next_event, :internal, :say_hello}]}
+  end
+
+  @impl true
+  def terminate(_reason, conn_info, _data) do
+    close_connection(conn_info)
+    Baobab.db(:all, :close)
   end
 
   def initial_conn_info(identity, socket, transport) do
