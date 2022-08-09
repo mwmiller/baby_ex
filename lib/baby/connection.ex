@@ -51,7 +51,6 @@ defmodule Baby.Connection do
   @impl true
   def terminate(_reason, conn_info, _data) do
     close_connection(conn_info)
-    Baobab.db(:all, :close)
   end
 
   def initial_conn_info(identity, socket, transport) do
