@@ -3,6 +3,17 @@ defmodule Baby.Connection do
   @behaviour :ranch_protocol
   require Logger
 
+  @protodef %{0 => :BYE, 1 => :HELLO, 2 => :AUTH, 3 => :REPLICATE}
+  @proto_msg Map.merge(
+               @protodef,
+               @protodef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
+             )
+
+  @repdef %{1 => :HAVE, 2 => :WANT, 8 => :BAMB}
+  @replication_msg Map.merge(
+                     @repdef,
+                     @repdef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
+                   )
   @impl true
   def callback_mode(), do: :handle_event_function
 
@@ -19,8 +30,6 @@ defmodule Baby.Connection do
   def init({ref, transport, identity}) do
     {:ok, socket} = :ranch.handshake(ref)
     :ok = transport.setopts(socket, active: :once)
-
-    Logger.debug("RANCH init")
 
     :gen_statem.enter_loop(
       __MODULE__,
@@ -42,16 +51,14 @@ defmodule Baby.Connection do
         active: :once
       ])
 
-    Logger.debug("SOCKET init")
-
     {:ok, :connected, initial_conn_info(identity, socket, nil),
      [{:next_event, :internal, :say_hello}]}
   end
 
-  @impl true
-  def terminate(_reason, conn_info, _data) do
-    close_connection(conn_info)
-  end
+  #  @impl true
+  #  def terminate(_reason, conn_info, _data) do
+  #    close_connection(conn_info)
+  #  end
 
   def initial_conn_info(identity, socket, transport) do
     %{
@@ -67,7 +74,9 @@ defmodule Baby.Connection do
 
   # Generic TCP handling stuff. Non-state dependant
   @impl true
-  def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
+  def handle_event(:info, {:tcp_closed, _socket}, _, conn_info) do
+    disconnect(conn_info)
+  end
 
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
 
@@ -78,18 +87,13 @@ defmodule Baby.Connection do
 
   def handle_event(:internal, :say_hello, _, conn_info) do
     {esk, epk} = Kcl.generate_key_pair(:encrypt)
-
-    whosit =
-      case Map.fetch(conn_info, :short_peer) do
-        {:ok, them} -> them
-        :error -> "~unknown"
-      end
-
-    Logger.debug([whosit, " ← HELLO"])
+    type = :HELLO
 
     (conn_info.our_pk <> epk <> Kcl.auth(epk, conn_info.clump_id))
-    |> Stlv.encode(1)
+    |> Stlv.encode(@proto_msg[type])
     |> send_packet(conn_info)
+
+    log_traffic(conn_info, :out, type)
 
     {:next_state, :hello, Map.merge(conn_info, %{our_epk: epk, our_esk: esk}), []}
   end
@@ -105,15 +109,17 @@ defmodule Baby.Connection do
             disconnect(conn_info)
 
           true ->
-            Logger.debug([short_peer, " → HELLO"])
+            nci =
+              Map.merge(conn_info, %{
+                short_peer: short_peer,
+                peer: peer,
+                their_pk: their_pk,
+                their_epk: their_epk
+              })
 
-            {:next_state, :auth,
-             Map.merge(conn_info, %{
-               short_peer: short_peer,
-               peer: peer,
-               their_pk: their_pk,
-               their_epk: their_epk
-             }), [{:next_event, :internal, :send_auth}]}
+            log_traffic(nci, :in, :HELLO)
+
+            {:next_state, :auth, nci, [{:next_event, :internal, :send_auth}]}
         end
 
       _ ->
@@ -138,17 +144,19 @@ defmodule Baby.Connection do
 
     nci = Map.merge(conn_info, %{:recv_key => recv_key, :send_key => send_key})
 
+    type = :AUTH
+
     (conn_info.clump_id <> recv_key)
     |> Kcl.sign(conn_info.our_sk)
-    |> pack_and_ship_nonce_box(nci, 2)
+    |> pack_and_ship_nonce_box(nci, @proto_msg[type])
 
-    Logger.debug([conn_info.short_peer, " ← AUTH"])
-
+    log_traffic(conn_info, :out, type)
     {:keep_state, nci}
   end
 
   def handle_event(:internal, :data, :auth, %{pkt: {2, _}} = conn_info) do
     sig = unpack_nonce_box(conn_info)
+    log_traffic(conn_info, :in, :AUTH)
 
     case Kcl.valid_signature?(
            sig,
@@ -156,7 +164,6 @@ defmodule Baby.Connection do
            conn_info.their_pk
          ) do
       false ->
-        Logger.debug([conn_info.short_peer, " → bad AUTH"])
         disconnect(conn_info)
 
       true ->
@@ -175,48 +182,26 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :send_have, :replicate, conn_info) do
-    Baobab.stored_info()
+    msg_type = :HAVE
+    stored = Baobab.stored_info()
+
+    stored
     |> CBOR.encode()
-    |> Stlv.encode(1)
+    |> Stlv.encode(@replication_msg[msg_type])
     |> pack_and_ship_nonce_box(conn_info, 3)
 
-    Logger.debug([conn_info.short_peer, " ← HAVE"])
-
+    log_traffic(conn_info, :out, msg_type, stored)
     {:keep_state_and_data, []}
   end
 
   def handle_event(:internal, :data, :replicate, %{pkt: {3, _}} = conn_info) do
     case conn_info |> unpack_nonce_box |> Stlv.decode() do
-      {1, data, ""} ->
-        case CBOR.decode(data) do
+      {msg_type, cbor, ""} ->
+        case CBOR.decode(cbor) do
           {:ok, decoded, ""} ->
-            Logger.debug([conn_info.short_peer, " → HAVE"])
-            request_their(decoded, conn_info, [])
-
-          _ ->
-            disconnect(conn_info)
-        end
-
-      {2, data, ""} ->
-        case CBOR.decode(data) do
-          {:ok, decoded, ""} ->
-            Logger.debug([conn_info.short_peer, " → WANT"])
-            send_our(decoded, conn_info)
-
-          _ ->
-            disconnect(conn_info)
-        end
-
-      {8, data, ""} ->
-        case CBOR.decode(data) do
-          {:ok, decoded, ""} ->
-            Logger.debug([
-              conn_info.short_peer,
-              " → BAMB: ",
-              length(decoded) |> Integer.to_string()
-            ])
-
-            Baobab.import(decoded)
+            what = @replication_msg[msg_type]
+            log_traffic(conn_info, :in, what, decoded)
+            replication_action(decoded, conn_info, what)
 
           _ ->
             disconnect(conn_info)
@@ -229,15 +214,19 @@ defmodule Baby.Connection do
     {:keep_state, %{conn_info | pkt: nil}}
   end
 
+  defp replication_action(data, conn_info, :HAVE), do: request_their(data, conn_info, [])
+  defp replication_action(data, conn_info, :WANT), do: send_our(data, conn_info)
+  defp replication_action(data, _conn_info, :BAMB), do: Baobab.import(data)
+
   defp request_their([], _, []), do: :ok
 
   defp request_their([], conn_info, wants) do
     wants
     |> CBOR.encode()
-    |> Stlv.encode(2)
+    |> Stlv.encode(@replication_msg[:WANT])
     |> pack_and_ship_nonce_box(conn_info, 3)
 
-    Logger.debug([conn_info.short_peer, " ← WANT"])
+    log_traffic(conn_info, :out, :WANT, wants)
   end
 
   defp request_their([[them, l, _] | rest], %{peer: them} = conn_info, acc) do
@@ -265,25 +254,22 @@ defmodule Baby.Connection do
 
     log
     |> CBOR.encode()
-    |> Stlv.encode(8)
+    |> Stlv.encode(@replication_msg[:BAMB])
     |> pack_and_ship_nonce_box(conn_info, 3)
 
-    Logger.debug([
-      conn_info.short_peer,
-      " ← BAMB: ",
-      length(log) |> Integer.to_string()
-    ])
-
+    log_traffic(conn_info, :out, :BAMB, log)
     send_our(rest, conn_info)
   end
 
   defp send_our([[a, l, e] | rest], conn_info) do
-    a
-    |> Baobab.log_at(e, log_id: l, format: :binary)
+    log = a |> Baobab.log_at(e, log_id: l, format: :binary)
+
+    log
     |> CBOR.encode()
-    |> Stlv.encode(8)
+    |> Stlv.encode(@replication_msg[:BAMB])
     |> pack_and_ship_nonce_box(conn_info, 3)
 
+    log_traffic(conn_info, :out, :BAMB, log)
     send_our(rest, conn_info)
   end
 
@@ -300,7 +286,7 @@ defmodule Baby.Connection do
       ) do
     case Kcl.secretunbox(box, nonce, recv_key) do
       :error ->
-        Logger.debug("Unboxing error")
+        Logger.error("Unboxing error")
         disconnect(conn_info)
 
       msg ->
@@ -349,4 +335,21 @@ defmodule Baby.Connection do
 
   defp close_connection(%{:transport => transport, :socket => socket}),
     do: transport.close(socket)
+
+  defp arrow(:in), do: "→"
+  defp arrow(:out), do: "←"
+
+  defp log_traffic(conn_info, dir, type, data \\ []) do
+    whosit =
+      case Map.fetch(conn_info, :short_peer) do
+        {:ok, them} -> them
+        :error -> "~unknown"
+      end
+
+    Enum.join(
+      [whosit, arrow(dir), Atom.to_string(type), data |> length |> Integer.to_string()],
+      " "
+    )
+    |> Logger.debug()
+  end
 end
