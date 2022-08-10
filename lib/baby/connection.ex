@@ -148,7 +148,7 @@ defmodule Baby.Connection do
 
     (conn_info.clump_id <> recv_key)
     |> Kcl.sign(conn_info.our_sk)
-    |> pack_and_ship_nonce_box(nci, @proto_msg[type])
+    |> pack_and_ship_nonce_box(nci, type)
 
     log_traffic(conn_info, :out, type)
     {:keep_state, nci}
@@ -182,15 +182,7 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :send_have, :replicate, conn_info) do
-    msg_type = :HAVE
-    stored = Baobab.stored_info()
-
-    stored
-    |> CBOR.encode()
-    |> Stlv.encode(@replication_msg[msg_type])
-    |> pack_and_ship_nonce_box(conn_info, 3)
-
-    log_traffic(conn_info, :out, msg_type, stored)
+    Baobab.stored_info() |> encode_replication(:HAVE, conn_info)
     {:keep_state_and_data, []}
   end
 
@@ -221,12 +213,7 @@ defmodule Baby.Connection do
   defp request_their([], _, []), do: :ok
 
   defp request_their([], conn_info, wants) do
-    wants
-    |> CBOR.encode()
-    |> Stlv.encode(@replication_msg[:WANT])
-    |> pack_and_ship_nonce_box(conn_info, 3)
-
-    log_traffic(conn_info, :out, :WANT, wants)
+    wants |> encode_replication(:WANT, conn_info)
   end
 
   defp request_their([[them, l, _] | rest], %{peer: them} = conn_info, acc) do
@@ -250,34 +237,33 @@ defmodule Baby.Connection do
   defp send_our([], _), do: :ok
 
   defp send_our([[a, l] | rest], conn_info) do
-    log = Baobab.full_log(a, log_id: l, format: :binary)
+    a
+    |> Baobab.full_log(log_id: l, format: :binary)
+    |> encode_replication(:BAMB, conn_info)
 
-    log
-    |> CBOR.encode()
-    |> Stlv.encode(@replication_msg[:BAMB])
-    |> pack_and_ship_nonce_box(conn_info, 3)
-
-    log_traffic(conn_info, :out, :BAMB, log)
     send_our(rest, conn_info)
   end
 
   defp send_our([[a, l, e] | rest], conn_info) do
-    log = a |> Baobab.log_at(e, log_id: l, format: :binary)
+    a |> Baobab.log_at(e, log_id: l, format: :binary) |> encode_replication(:BAMB, conn_info)
 
-    log
-    |> CBOR.encode()
-    |> Stlv.encode(@replication_msg[:BAMB])
-    |> pack_and_ship_nonce_box(conn_info, 3)
-
-    log_traffic(conn_info, :out, :BAMB, log)
     send_our(rest, conn_info)
+  end
+
+  defp encode_replication(msg, type, conn_info) do
+    msg
+    |> CBOR.encode()
+    |> Stlv.encode(@replication_msg[type])
+    |> pack_and_ship_nonce_box(conn_info, :REPLICATE)
+
+    log_traffic(conn_info, :out, type, msg)
   end
 
   defp pack_and_ship_nonce_box(msg, conn_info, type) do
     nonce = :rand.bytes(24)
 
     (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
-    |> Stlv.encode(type)
+    |> Stlv.encode(@proto_msg[type])
     |> send_packet(conn_info)
   end
 
