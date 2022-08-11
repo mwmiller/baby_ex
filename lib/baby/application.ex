@@ -34,8 +34,7 @@ defmodule Baby.Application do
     )
 
     children = [
-      # Starts a worker by calling: Baby.Worker.start_link(arg)
-      # {Baby.Worker, arg}
+      {Baby.Monitor, %{cryouts: Application.get_env(:baby, :cryouts)}}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
