@@ -55,10 +55,13 @@ defmodule Baby.Connection do
      [{:next_event, :internal, :say_hello}]}
   end
 
-  #  @impl true
-  #  def terminate(_reason, conn_info, _data) do
-  #    close_connection(conn_info)
-  #  end
+  @impl true
+  def terminate(_, conn_info, _data) when is_map(conn_info) do
+    Logger.debug("Terminating")
+    close_connection(conn_info)
+  end
+
+  def terminate(_, _, _), do: :ok
 
   def initial_conn_info(identity, socket, transport) do
     %{
@@ -298,14 +301,12 @@ defmodule Baby.Connection do
   end
 
   defp disconnect(conn_info) do
-    close_connection(conn_info)
-
     case Map.fetch(conn_info, :short_peer) do
       {:ok, peer} -> Logger.info([peer <> " disconnected"])
       :error -> :ok
     end
 
-    {:next_state, :disconnected, %{}, []}
+    {:stop, :normal, %{}}
   end
 
   defp send_packet(packet, %{:transport => nil, :socket => sock}), do: :gen_tcp.send(sock, packet)
