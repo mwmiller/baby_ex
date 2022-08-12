@@ -18,8 +18,8 @@ defmodule Baby.Connection do
   def callback_mode(), do: :handle_event_function
 
   @impl true
-  def start_link(ref, transport, identity) do
-    {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, identity}])}
+  def start_link(ref, transport, opts) do
+    {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, opts}])}
   end
 
   def start_link(opts) do
@@ -27,7 +27,7 @@ defmodule Baby.Connection do
   end
 
   @impl true
-  def init({ref, transport, identity}) do
+  def init({ref, transport, opts}) do
     {:ok, socket} = :ranch.handshake(ref)
     :ok = transport.setopts(socket, active: :once)
 
@@ -35,7 +35,7 @@ defmodule Baby.Connection do
       __MODULE__,
       [],
       :connected,
-      initial_conn_info(identity, socket, transport),
+      initial_conn_info(opts, socket, transport),
       [
         {:next_event, :internal, :say_hello}
       ]
@@ -43,15 +43,13 @@ defmodule Baby.Connection do
   end
 
   def init(opts) do
-    identity = Keyword.get(opts, :identity)
-
     {:ok, socket} =
       :gen_tcp.connect(Keyword.get(opts, :host), Keyword.get(opts, :port), [
         :binary,
         active: :once
       ])
 
-    {:ok, :connected, initial_conn_info(identity, socket, nil),
+    {:ok, :connected, initial_conn_info(opts, socket, nil),
      [{:next_event, :internal, :say_hello}]}
   end
 
@@ -63,9 +61,12 @@ defmodule Baby.Connection do
 
   def terminate(_, _, _), do: :ok
 
-  def initial_conn_info(identity, socket, transport) do
+  def initial_conn_info(opts, socket, transport) do
+    identity = Keyword.get(opts, :identity)
+
     %{
-      clump_id: "Quagga",
+      pid: self(),
+      clump_id: Keyword.get(opts, :clump_id, "Quagga"),
       socket: socket,
       transport: transport,
       our_pk: Baobab.identity_key(identity, :public),

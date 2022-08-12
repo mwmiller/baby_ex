@@ -30,7 +30,8 @@ defmodule Baby.Application do
       :ranch_tcp,
       [port: Application.get_env(:baby, :port)],
       Baby.Connection,
-      whoami
+      identity: whoami,
+      clump_id: Application.get_env(:baby, :clump_id)
     )
 
     children = [
