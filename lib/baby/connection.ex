@@ -70,7 +70,7 @@ defmodule Baby.Connection do
       transport: transport,
       our_pk: Baobab.identity_key(identity, :public),
       our_sk: Baobab.identity_key(identity, :secret),
-      pkt: nil,
+      pkt: [],
       wire: <<>>
     }
   end
@@ -101,7 +101,7 @@ defmodule Baby.Connection do
     {:next_state, :hello, Map.merge(conn_info, %{our_epk: epk, our_esk: esk}), []}
   end
 
-  def handle_event(:internal, :data, :hello, %{pkt: {1, hello}} = conn_info) do
+  def handle_event(:internal, :data, :hello, %{pkt: [{1, hello} | rest]} = conn_info) do
     case hello do
       <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> ->
         peer = their_pk |> Baobab.b62identity()
@@ -122,7 +122,7 @@ defmodule Baby.Connection do
 
             log_traffic(nci, :in, :HELLO)
 
-            {:next_state, :auth, nci, [{:next_event, :internal, :send_auth}]}
+            {:next_state, :auth, %{nci | pkt: rest}, [{:next_event, :internal, :send_auth}]}
         end
 
       _ ->
@@ -157,7 +157,7 @@ defmodule Baby.Connection do
     {:keep_state, nci}
   end
 
-  def handle_event(:internal, :data, :auth, %{pkt: {2, _}} = conn_info) do
+  def handle_event(:internal, :data, :auth, %{pkt: [{2, _} | rest]} = conn_info) do
     sig = unpack_nonce_box(conn_info)
     log_traffic(conn_info, :in, :AUTH)
 
@@ -180,7 +180,8 @@ defmodule Baby.Connection do
            :our_epk,
            :their_pk,
            :their_epk
-         ]), [{:next_event, :internal, :send_have}]}
+         ])
+         |> Map.merge(%{pkt: rest}), [{:next_event, :internal, :send_have}]}
     end
   end
 
@@ -189,7 +190,7 @@ defmodule Baby.Connection do
     {:keep_state_and_data, []}
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: {3, _}} = conn_info) do
+  def handle_event(:internal, :data, :replicate, %{pkt: [{3, _} | rest]} = conn_info) do
     case conn_info |> unpack_nonce_box |> Stlv.decode() do
       {msg_type, cbor, ""} ->
         case CBOR.decode(cbor) do
@@ -206,7 +207,7 @@ defmodule Baby.Connection do
         disconnect(conn_info)
     end
 
-    {:keep_state, %{conn_info | pkt: nil}}
+    {:keep_state, %{conn_info | pkt: rest}}
   end
 
   defp replication_action(data, conn_info, :HAVE), do: request_their(data, conn_info, [])
@@ -271,7 +272,7 @@ defmodule Baby.Connection do
   end
 
   def unpack_nonce_box(
-        %{pkt: {_, <<nonce::binary-size(24), box::binary>>}, recv_key: recv_key} = conn_info
+        %{pkt: [{_, <<nonce::binary-size(24), box::binary>>} | _], recv_key: recv_key} = conn_info
       ) do
     case Kcl.secretunbox(box, nonce, recv_key) do
       :error ->
@@ -292,7 +293,7 @@ defmodule Baby.Connection do
         {:keep_state, %{conn_info | :wire => wire}, []}
 
       {type, value, rest} ->
-        {:keep_state, %{conn_info | pkt: {type, value}, wire: rest},
+        {:keep_state, %{conn_info | pkt: conn_info.pkt ++ [{type, value}], wire: rest},
          [{:next_event, :internal, :data}]}
 
       _ ->
