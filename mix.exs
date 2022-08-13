@@ -21,7 +21,7 @@ defmodule Baby.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:baobab, "~> 0.6.0"},
+      {:baobab, "~> 0.7.0"},
       {:cbor, "~> 1.0"},
       {:kcl, "~> 1.0"},
       {:ranch, "~> 2.0"},
