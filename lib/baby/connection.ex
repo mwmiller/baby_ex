@@ -18,6 +18,15 @@ defmodule Baby.Connection do
   @impl true
   def callback_mode(), do: :handle_event_function
 
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker,
+      restart: :transient
+    }
+  end
+
   @impl true
   def start_link(ref, transport, opts) do
     {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, opts}])}
@@ -45,14 +54,17 @@ defmodule Baby.Connection do
   end
 
   def init(opts) do
-    {:ok, socket} =
-      :gen_tcp.connect(Keyword.get(opts, :host), Keyword.get(opts, :port), [
-        :binary,
-        active: :once
-      ])
+    case :gen_tcp.connect(Keyword.get(opts, :host), Keyword.get(opts, :port), [
+           :binary,
+           active: :once
+         ]) do
+      {:ok, socket} ->
+        {:ok, :connected, initial_conn_info(opts, socket, nil),
+         [@idle_timeout, {:next_event, :internal, :say_hello}]}
 
-    {:ok, :connected, initial_conn_info(opts, socket, nil),
-     [@idle_timeout, {:next_event, :internal, :say_hello}]}
+      _ ->
+        {:stop, :normal}
+    end
   end
 
   @impl true

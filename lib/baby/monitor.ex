@@ -3,6 +3,11 @@ defmodule Baby.Monitor do
   require Logger
 
   def start_link(opts) when is_map(opts) do
+    children = [
+      {DynamicSupervisor, strategy: :one_for_one, name: Baby.Monitor.DynamicSupervisor}
+    ]
+
+    Supervisor.start_link(children, strategy: :one_for_one)
     GenServer.start_link(__MODULE__, opts)
   end
 
@@ -19,7 +24,18 @@ defmodule Baby.Monitor do
   def handle_info({:cryout, opts}, state) do
     host = Keyword.get(opts, :host)
     Logger.info(["Crying out to ", host])
-    Baby.connect(host, Keyword.get(opts, :port))
+
+    DynamicSupervisor.start_child(
+      Baby.Monitor.DynamicSupervisor,
+      {Baby.Connection,
+       [
+         host: Baby.host_to_ip(host),
+         port: Keyword.get(opts, :port),
+         identity: Application.get_env(:baby, :identity),
+         clump_id: Application.get_env(:baby, :clump_id)
+       ]}
+    )
+
     # We get inherent jitter via the connection spin up
     next_start = to_ms(Keyword.get(opts, :period, {17, :minute}))
 
