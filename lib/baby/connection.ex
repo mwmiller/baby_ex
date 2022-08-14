@@ -14,6 +14,7 @@ defmodule Baby.Connection do
                      @repdef,
                      @repdef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
                    )
+  @idle_timeout {{:timeout, :idle}, 8599, :nothing_happening}
   @impl true
   def callback_mode(), do: :handle_event_function
 
@@ -37,6 +38,7 @@ defmodule Baby.Connection do
       :connected,
       initial_conn_info(opts, socket, transport),
       [
+        @idle_timeout,
         {:next_event, :internal, :say_hello}
       ]
     )
@@ -50,7 +52,7 @@ defmodule Baby.Connection do
       ])
 
     {:ok, :connected, initial_conn_info(opts, socket, nil),
-     [{:next_event, :internal, :say_hello}]}
+     [@idle_timeout, {:next_event, :internal, :say_hello}]}
   end
 
   @impl true
@@ -80,12 +82,12 @@ defmodule Baby.Connection do
 
   # Generic TCP handling stuff. Non-state dependant
   @impl true
-  def handle_event(:info, {:tcp_closed, _socket}, _, conn_info) do
-    disconnect(conn_info)
-  end
+  def handle_event({:timeout, :idle}, :nothing_happening, _, conn_info), do: disconnect(conn_info)
 
+  def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
 
+  # Our stuff
   def handle_event(:internal, :data, :connected, conn_info) do
     # We don't really handle any data in this state, so move it on to hello
     {:next_state, :hello, conn_info, [{:next_event, :internal, :data}]}
@@ -184,7 +186,7 @@ defmodule Baby.Connection do
            :their_pk,
            :their_epk
          ])
-         |> Map.merge(%{pkt: rest}), [{:next_event, :internal, :send_have}]}
+         |> Map.merge(%{pkt: rest}), [@idle_timeout, {:next_event, :internal, :send_have}]}
     end
   end
 
@@ -216,10 +218,11 @@ defmodule Baby.Connection do
           disconnect(conn_info)
       end
 
-    {:keep_state, %{nci | pkt: rest}, [{:next_event, :internal, :data}]}
+    {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
   end
 
-  def handle_event(:internal, :data, :replicate, conn_info), do: {:keep_state, conn_info}
+  def handle_event(:internal, :data, :replicate, conn_info),
+    do: {:keep_state, conn_info, [@idle_timeout]}
 
   defp replication_action(data, conn_info, :HAVE), do: request_their(data, conn_info, [])
   defp replication_action(data, conn_info, :WANT), do: send_our(data, conn_info)
@@ -358,7 +361,8 @@ defmodule Baby.Connection do
 
     case Stlv.decode(wire) do
       :error ->
-        {:keep_state, %{conn_info | :wire => wire}, [{:next_event, :internal, :data}]}
+        {:keep_state, %{conn_info | :wire => wire},
+         [@idle_timeout, {:next_event, :internal, :data}]}
 
       {type, value, rest} ->
         wire_buffer(rest, %{conn_info | pkt: conn_info.pkt ++ [{type, value}], wire: <<>>})
