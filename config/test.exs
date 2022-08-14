@@ -5,4 +5,6 @@ config :baobab,
 
 config :baby,
   identity: "dtBy",
-  port: 8485
+  port: 8485,
+  clump_id: "Quagga",
+  cryouts: []

@@ -245,7 +245,7 @@ defmodule Baby.Connection do
 
     import_summary(rest, %{
       conn_info
-      | have: Map.merge(conn_info.have, %{{Baobab.b62identity(a), l} => e}),
+      | have: Map.merge(conn_info.have, %{{a, l} => e}),
         want:
           Enum.reduce([{a}, {a, l}, {a, l, e}], conn_info.want, fn elem, acc ->
             MapSet.delete(acc, elem)
@@ -254,9 +254,9 @@ defmodule Baby.Connection do
   end
 
   defp request_their([], conn_info, wants) do
-    # This will eventually ask for all logs for the source
-    # Right now, not everyone can handle that kind of message
-    full_wants = wants ++ [{conn_info.peer, 0}]
+    # When talking directly to the source, get as much
+    # as one can of their logs.
+    full_wants = wants ++ [{conn_info.peer}]
 
     encode_replication(
       full_wants,
@@ -292,7 +292,7 @@ defmodule Baby.Connection do
     |> Map.keys()
     |> Enum.reduce([], fn entry, acc ->
       case entry do
-        {^a, l, _} -> [l | acc]
+        {^a, l} -> [[a, l] | acc]
         _ -> acc
       end
     end)
@@ -376,19 +376,11 @@ defmodule Baby.Connection do
       dude ->
         Logger.info([dude <> " disconnected"])
 
-        wants =
-          Enum.reduce(MapSet.to_list(conn_info.want), "", fn
-            {a}, acc ->
-              acc <> " " <> a
-
-            {a, l}, acc ->
-              acc <> " " <> a <> ":" <> Integer.to_string(l)
-
-            {a, l, e}, acc ->
-              acc <> " " <> a <> ":" <> Integer.to_string(l) <> ":" <> Integer.to_string(e)
-          end)
-
-        Logger.debug([dude, " unrequited wants: " <> wants])
+        Logger.debug([
+          dude,
+          " unrequited wants: ",
+          conn_info.want |> MapSet.size() |> Integer.to_string()
+        ])
     end
 
     {:stop, :normal, %{}}
