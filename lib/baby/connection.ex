@@ -66,6 +66,8 @@ defmodule Baby.Connection do
 
     %{
       pid: self(),
+      have: stored_info_map(),
+      want: MapSet.new(),
       clump_id: Keyword.get(opts, :clump_id, "Quagga"),
       socket: socket,
       transport: transport,
@@ -187,72 +189,136 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :send_have, :replicate, conn_info) do
-    Baobab.stored_info() |> encode_replication(:HAVE, conn_info)
-    {:keep_state_and_data, []}
+    nci =
+      conn_info.have
+      |> Map.to_list()
+      |> Enum.map(fn {{a, l}, e} -> {a, l, e} end)
+      |> encode_replication(:HAVE, conn_info)
+
+    {:keep_state, nci, [{:next_event, :internal, :data}]}
   end
 
   def handle_event(:internal, :data, :replicate, %{pkt: [{3, _} | rest]} = conn_info) do
-    case conn_info |> unpack_nonce_box |> Stlv.decode() do
-      {msg_type, cbor, ""} ->
-        case CBOR.decode(cbor) do
-          {:ok, decoded, ""} ->
-            what = @replication_msg[msg_type]
-            log_traffic(conn_info, :in, what, decoded)
-            replication_action(decoded, conn_info, what)
+    nci =
+      case conn_info |> unpack_nonce_box |> Stlv.decode() do
+        {msg_type, cbor, ""} ->
+          case CBOR.decode(cbor) do
+            {:ok, decoded, ""} ->
+              what = @replication_msg[msg_type]
+              log_traffic(conn_info, :in, what, decoded)
+              replication_action(decoded, conn_info, what)
 
-          _ ->
-            disconnect(conn_info)
-        end
+            _ ->
+              disconnect(conn_info)
+          end
 
-      _ ->
-        disconnect(conn_info)
-    end
+        _ ->
+          disconnect(conn_info)
+      end
 
-    {:keep_state, %{conn_info | pkt: rest}}
+    {:keep_state, %{nci | pkt: rest}, [{:next_event, :internal, :data}]}
   end
+
+  def handle_event(:internal, :data, :replicate, conn_info), do: {:keep_state, conn_info}
 
   defp replication_action(data, conn_info, :HAVE), do: request_their(data, conn_info, [])
   defp replication_action(data, conn_info, :WANT), do: send_our(data, conn_info)
-  defp replication_action(data, _conn_info, :BAMB), do: Baobab.import(data)
+  defp replication_action(data, conn_info, :BAMB), do: import_their(data, conn_info)
 
-  defp request_their([], _, []), do: :ok
-
-  defp request_their([], conn_info, wants) do
-    wants |> encode_replication(:WANT, conn_info)
+  defp import_their(stuff, conn_info) do
+    stuff |> Baobab.import() |> import_summary(conn_info)
   end
 
-  defp request_their([[them, l, _] | rest], %{peer: them} = conn_info, acc) do
-    # Get the full log from them every time if they are the source
-    request_their(rest, conn_info, [{them, l} | acc])
+  defp import_summary([], conn_info), do: conn_info
+
+  defp import_summary([{:error, reason} | rest], conn_info) do
+    Enum.join([tilde_peer(conn_info), arrow(:in), "import error:", reason], " ")
+    |> Logger.warn()
+
+    import_summary(rest, conn_info)
+  end
+
+  # They have to be provided in order or the chain won't verify
+  # There are extra updates here, but maybe there's an error mixed in
+  defp import_summary([%Baobab.Entry{author: author, log_id: l, seqnum: e} | rest], conn_info) do
+    a = author |> Baobab.b62identity()
+
+    import_summary(rest, %{
+      conn_info
+      | have: Map.merge(conn_info.have, %{{Baobab.b62identity(a), l} => e}),
+        want:
+          Enum.reduce([{a}, {a, l}, {a, l, e}], conn_info.want, fn elem, acc ->
+            MapSet.delete(acc, elem)
+          end)
+    })
+  end
+
+  defp request_their([], conn_info, wants) do
+    # This will eventually ask for all logs for the source
+    # Right now, not everyone can handle that kind of message
+    full_wants = wants ++ [{conn_info.peer, 0}]
+
+    encode_replication(
+      full_wants,
+      :WANT,
+      %{
+        conn_info
+        | want: Enum.reduce(full_wants, conn_info.want, fn e, ms -> MapSet.put(ms, e) end)
+      }
+    )
   end
 
   defp request_their([[a, l, e] | rest], conn_info, acc) do
-    we_have = Baobab.max_seqnum(a, log_id: l)
+    we_have = Map.get(conn_info.have, {a, l}, 0)
 
-    cond do
-      # It's new to us, get everything we can
-      we_have == 0 -> request_their(rest, conn_info, [{a, l} | acc])
-      # catch up
-      we_have < e -> request_their(rest, conn_info, [{a, l, e} | acc])
-      # We're even or ahead -- we assume they'll ask if they want more
-      we_have >= e -> request_their(rest, conn_info, acc)
-    end
+    add =
+      cond do
+        # It's new to us, get everything we can
+        we_have == 0 -> [{a, l}]
+        # catch up
+        we_have < e -> [{a, l, e}]
+        # We're even or ahead -- we assume they'll ask if they want more
+        we_have >= e -> []
+      end
+
+    request_their(rest, conn_info, acc ++ add)
   end
 
-  defp send_our([], _), do: :ok
+  defp send_our([], conn_info), do: conn_info
 
+  # Full logs for author
+  defp send_our([[a] | rest], conn_info) do
+    conn_info.have
+    |> Map.keys()
+    |> Enum.reduce([], fn entry, acc ->
+      case entry do
+        {^a, l, _} -> [l | acc]
+        _ -> acc
+      end
+    end)
+    |> then(fn al -> rest ++ al end)
+    |> send_our(conn_info)
+  end
+
+  # Full log for author log_id
   defp send_our([[a, l] | rest], conn_info) do
-    a
-    |> Baobab.full_log(log_id: l, format: :binary)
-    |> encode_replication(:BAMB, conn_info)
+    nci =
+      case Baobab.full_log(a, log_id: l, format: :binary) do
+        [] -> conn_info
+        entries -> encode_replication(entries, :BAMB, conn_info)
+      end
 
-    send_our(rest, conn_info)
+    send_our(rest, nci)
   end
 
   defp send_our([[a, l, e] | rest], conn_info) do
-    a |> Baobab.log_at(e, log_id: l, format: :binary) |> encode_replication(:BAMB, conn_info)
+    nci =
+      case Baobab.log_at(a, e, log_id: l, format: :binary) do
+        [] -> conn_info
+        entries -> encode_replication(entries, :BAMB, conn_info)
+      end
 
-    send_our(rest, conn_info)
+    send_our(rest, nci)
   end
 
   defp encode_replication(msg, type, conn_info) do
@@ -262,6 +328,7 @@ defmodule Baby.Connection do
     |> pack_and_ship_nonce_box(conn_info, :REPLICATE)
 
     log_traffic(conn_info, :out, type, msg)
+    conn_info
   end
 
   defp pack_and_ship_nonce_box(msg, conn_info, type) do
@@ -291,11 +358,10 @@ defmodule Baby.Connection do
 
     case Stlv.decode(wire) do
       :error ->
-        {:keep_state, %{conn_info | :wire => wire}, []}
+        {:keep_state, %{conn_info | :wire => wire}, [{:next_event, :internal, :data}]}
 
       {type, value, rest} ->
-        {:keep_state, %{conn_info | pkt: conn_info.pkt ++ [{type, value}], wire: rest},
-         [{:next_event, :internal, :data}]}
+        wire_buffer(rest, %{conn_info | pkt: conn_info.pkt ++ [{type, value}], wire: <<>>})
 
       _ ->
         disconnect(conn_info)
@@ -303,9 +369,26 @@ defmodule Baby.Connection do
   end
 
   defp disconnect(conn_info) do
-    case Map.fetch(conn_info, :short_peer) do
-      {:ok, peer} -> Logger.info([peer <> " disconnected"])
-      :error -> :ok
+    case tilde_peer(conn_info) do
+      "~unknown" ->
+        :ok
+
+      dude ->
+        Logger.info([dude <> " disconnected"])
+
+        wants =
+          Enum.reduce(MapSet.to_list(conn_info.want), "", fn
+            {a}, acc ->
+              acc <> " " <> a
+
+            {a, l}, acc ->
+              acc <> " " <> a <> ":" <> Integer.to_string(l)
+
+            {a, l, e}, acc ->
+              acc <> " " <> a <> ":" <> Integer.to_string(l) <> ":" <> Integer.to_string(e)
+          end)
+
+        Logger.debug([dude, " unrequited wants: " <> wants])
     end
 
     {:stop, :normal, %{}}
@@ -329,16 +412,26 @@ defmodule Baby.Connection do
   defp arrow(:out), do: "←"
 
   defp log_traffic(conn_info, dir, type, data \\ []) do
-    whosit =
-      case Map.fetch(conn_info, :short_peer) do
-        {:ok, them} -> them
-        :error -> "~unknown"
-      end
-
     Enum.join(
-      [whosit, arrow(dir), Atom.to_string(type), data |> length |> Integer.to_string()],
+      [
+        tilde_peer(conn_info),
+        arrow(dir),
+        Atom.to_string(type),
+        data |> length |> Integer.to_string()
+      ],
       " "
     )
     |> Logger.debug()
+  end
+
+  defp tilde_peer(conn_info) do
+    case Map.fetch(conn_info, :short_peer) do
+      {:ok, them} -> them
+      :error -> "~unknown"
+    end
+  end
+
+  defp stored_info_map() do
+    Baobab.stored_info() |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
   end
 end
