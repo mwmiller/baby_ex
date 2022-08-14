@@ -35,7 +35,7 @@ defmodule Baby.Application do
     )
 
     children = [
-      {Baby.Monitor, %{cryouts: Application.get_env(:baby, :cryouts)}}
+      {Baby.Monitor, %{cryouts: Application.get_env(:baby, :cryouts, [])}}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
