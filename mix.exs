@@ -21,13 +21,14 @@ defmodule Baby.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:baobab, "~> 0.8.0"},
-      {:cbor, "~> 1.0"},
+      {:baobab, "~> 0.9.0"},
       {:kcl, "~> 1.0"},
-      {:ranch, "~> 2.0"},
       {:stlv, "~> 1.0"},
       {:varu64, "~> 1.0"},
-      {:yamfhash, "~> 1.0"}
+      {:yamfhash, "~> 1.0"},
+      # Third-party
+      {:cbor, "~> 1.0"},
+      {:ranch, "~> 2.0"}
     ]
   end
 end
