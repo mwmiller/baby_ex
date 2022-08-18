@@ -271,16 +271,9 @@ defmodule Baby.Connection do
   defp request_their([], conn_info, wants) do
     # When talking directly to the source, get as much
     # as one can of their logs.
-    full_wants = wants ++ [{conn_info.peer}]
-
-    encode_replication(
-      full_wants,
-      :WANT,
-      %{
-        conn_info
-        | want: Enum.reduce(full_wants, conn_info.want, fn e, ms -> MapSet.put(ms, e) end)
-      }
-    )
+    short_list = (wants ++ [{conn_info.peer}]) |> reduce_wants
+    short_set = short_list |> MapSet.new() |> MapSet.union(conn_info.want)
+    encode_replication(short_list, :WANT, %{conn_info | want: short_set})
   end
 
   defp request_their([[a, l, e] | rest], conn_info, acc) do
@@ -412,6 +405,42 @@ defmodule Baby.Connection do
     end
 
     {:stop, :normal, %{}}
+  end
+
+  # Bad time complexity all up in here.
+  defp reduce_wants(wants), do: wants |> Enum.sort() |> Enum.uniq() |> reduce_wants([])
+  defp reduce_wants([], acc), do: acc
+
+  # Full logs for author means no need for partials
+  # or individual logs
+  defp reduce_wants([{a} | rest], acc) do
+    reduce_wants(
+      Enum.reject(rest, fn
+        {^a, _} -> true
+        {^a, _, _} -> true
+        {^a, _, _, _} -> true
+        _ -> false
+      end),
+      [{a} | acc]
+    )
+  end
+
+  # Full log means no need for partials
+  defp reduce_wants([{a, l} | rest], acc) do
+    reduce_wants(
+      Enum.reject(rest, fn
+        {^a, ^l, _} -> true
+        {^a, ^l, _, _} -> true
+        _ -> false
+      end),
+      [{a, l} | acc]
+    )
+  end
+
+  # We're allow to want two different partial chains
+  # Since we've sorted this we can move everything at once
+  defp reduce_wants(partials, acc) do
+    reduce_wants([], partials ++ acc)
   end
 
   defp send_packet(packet, %{:transport => nil, :socket => sock}), do: :gen_tcp.send(sock, packet)
