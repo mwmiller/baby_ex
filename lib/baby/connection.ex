@@ -87,6 +87,7 @@ defmodule Baby.Connection do
       transport: transport,
       our_pk: Baobab.identity_key(identity, :public),
       our_sk: Baobab.identity_key(identity, :secret),
+      their_nonces: MapSet.new(),
       pkt: [],
       wire: <<>>
     }
@@ -175,30 +176,35 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :auth, %{pkt: [{2, _} | rest]} = conn_info) do
-    sig = unpack_nonce_box(conn_info)
-    log_traffic(conn_info, :in, :AUTH)
+    case unpack_nonce_box(conn_info) do
+      {:stop, reason} ->
+        {:stop, reason}
 
-    case Kcl.valid_signature?(
-           sig,
-           conn_info.clump_id <> conn_info.send_key,
-           conn_info.their_pk
-         ) do
-      false ->
-        disconnect(conn_info)
+      {sig, nci} ->
+        log_traffic(nci, :in, :AUTH)
 
-      true ->
-        Logger.info([conn_info.short_peer, " connected"])
+        case Kcl.valid_signature?(
+               sig,
+               nci.clump_id <> nci.send_key,
+               nci.their_pk
+             ) do
+          false ->
+            disconnect(nci)
 
-        {:next_state, :replicate,
-         Map.drop(conn_info, [
-           :our_pk,
-           :our_sk,
-           :our_esk,
-           :our_epk,
-           :their_pk,
-           :their_epk
-         ])
-         |> Map.merge(%{pkt: rest}), [@idle_timeout, {:next_event, :internal, :send_have}]}
+          true ->
+            Logger.info([nci.short_peer, " connected"])
+
+            {:next_state, :replicate,
+             Map.drop(nci, [
+               :our_pk,
+               :our_sk,
+               :our_esk,
+               :our_epk,
+               :their_pk,
+               :their_epk
+             ])
+             |> Map.merge(%{pkt: rest}), [@idle_timeout, {:next_event, :internal, :send_have}]}
+        end
     end
   end
 
@@ -213,24 +219,30 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :replicate, %{pkt: [{3, _} | rest]} = conn_info) do
-    nci =
-      case conn_info |> unpack_nonce_box |> Stlv.decode() do
-        {msg_type, cbor, ""} ->
-          case CBOR.decode(cbor) do
-            {:ok, decoded, ""} ->
-              what = @replication_msg[msg_type]
-              log_traffic(conn_info, :in, what, decoded)
-              replication_action(decoded, conn_info, what)
+    case unpack_nonce_box(conn_info) do
+      {:stop, reason} ->
+        {:stop, reason}
+
+      {stlv, new_conn} ->
+        nci =
+          case Stlv.decode(stlv) do
+            {msg_type, cbor, ""} ->
+              case CBOR.decode(cbor) do
+                {:ok, decoded, ""} ->
+                  what = @replication_msg[msg_type]
+                  log_traffic(new_conn, :in, what, decoded)
+                  replication_action(decoded, new_conn, what)
+
+                _ ->
+                  disconnect(new_conn)
+              end
 
             _ ->
-              disconnect(conn_info)
+              disconnect(new_conn)
           end
 
-        _ ->
-          disconnect(conn_info)
-      end
-
-    {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+    end
   end
 
   def handle_event(:internal, :data, :replicate, conn_info),
@@ -362,13 +374,20 @@ defmodule Baby.Connection do
   def unpack_nonce_box(
         %{pkt: [{_, <<nonce::binary-size(24), box::binary>>} | _], recv_key: recv_key} = conn_info
       ) do
-    case Kcl.secretunbox(box, nonce, recv_key) do
-      :error ->
-        Logger.error("Unboxing error")
+    case MapSet.member?(conn_info.their_nonces, nonce) do
+      true ->
+        Logger.warn([tilde_peer(conn_info), " possible replay attack via reused nonce"])
         disconnect(conn_info)
 
-      msg ->
-        msg
+      false ->
+        case Kcl.secretunbox(box, nonce, recv_key) do
+          :error ->
+            Logger.error([tilde_peer(conn_info), " unboxing error"])
+            disconnect(conn_info)
+
+          msg ->
+            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
+        end
     end
   end
 
@@ -404,7 +423,7 @@ defmodule Baby.Connection do
         ])
     end
 
-    {:stop, :normal, %{}}
+    {:stop, :normal}
   end
 
   # Bad time complexity all up in here.
