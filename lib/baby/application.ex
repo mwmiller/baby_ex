@@ -28,7 +28,7 @@ defmodule Baby.Application do
     :ranch.start_listener(
       :baby,
       :ranch_tcp,
-      [port: Application.get_env(:baby, :port)],
+      [port: Application.get_env(:baby, :port, 8483)],
       Baby.Connection,
       identity: whoami,
       clump_id: Application.get_env(:baby, :clump_id)
