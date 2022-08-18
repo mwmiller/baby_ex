@@ -291,7 +291,7 @@ defmodule Baby.Connection do
         # It's new to us, get everything we can
         we_have == 0 -> [{a, l}]
         # catch up
-        we_have < e -> [{a, l, e}]
+        we_have < e -> [{a, l, we_have + 1, e}]
         # We're even or ahead -- we assume they'll ask if they want more
         we_have >= e -> []
       end
@@ -326,9 +326,21 @@ defmodule Baby.Connection do
     send_our(rest, nci)
   end
 
+  # Full chain from 1 to requested entry
   defp send_our([[a, l, e] | rest], conn_info) do
     nci =
       case Baobab.log_at(a, e, log_id: l, format: :binary) do
+        [] -> conn_info
+        entries -> encode_replication(entries, :BAMB, conn_info)
+      end
+
+    send_our(rest, nci)
+  end
+
+  # Chain links from start to end
+  defp send_our([[a, l, s, e] | rest], conn_info) do
+    nci =
+      case Baobab.log_range(a, {s, e}, log_id: l, format: :binary) do
         [] -> conn_info
         entries -> encode_replication(entries, :BAMB, conn_info)
       end
