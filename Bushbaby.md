@@ -43,7 +43,7 @@ Constructing an outgoing message consists of:
 	- Generating the message
 	- Selecting a random nonce
 	- Creating a secret box containing the message, secured with the selected nonce and "send key"
-	- Wrapping the message in the appropriate STLV message type
+	- Wrapping the concatenated nonce and secretbox in the appropriate STLV message type
 
 Unpacking an incoming message consists of:
 
@@ -52,7 +52,7 @@ Unpacking an incoming message consists of:
 	- Opening the secret box containing the message, secured with the provided nonce and "receive key"
 	- Handling the contained message
 
-Nodes should take care neither send nor accept repeated nonces in a given connection.  This can indicate and make one vulnerable to a replay attack.
+Nodes should take care neither to send nor accept repeated nonces in a given connection.  This can indicate (and make one vulnerable to) a replay attack.
 
 ### Handshake
 
@@ -79,12 +79,12 @@ Two keys are derived from the available information.
 The "send key" will be used to create secret boxes readable by the peer. It is the 256-bit Blake2b hash of the Curve25519 secret derived from:
 
 	- Node's own ephemeral secret key
-	- Curve25519 equivalent of the server's long-term ED25519 key
+	- Curve25519 equivalent of the peer's long-term ED25519 key
 
  The "receive key" will be used to unbox such received boxes. It is the 256-bit Blake2b hash of the Curve25519 secret derived from:
 
 	- Curve25519 equivalent of the node's long-term ED25519 key
-	- Peer's ephemeral secret key
+	- Peer's ephemeral public key
 
 The clump identifier is concatenated with the receive key and signed with the node's longterm key.  This is sent in a "nonce box" STLV-encoded message of type `2`.
 
@@ -136,4 +136,4 @@ Since Bamboo packets may contain any sort of data in any kind of order, peers ma
 
 Bushbaby is content-agnostic.  There are no references to using the content of the logs themselves within this protocol.  Applications may wish to define interactions with implementations based on log contents.  Such concerns are outside the scope of this protocol.
 
-The preferred response to all bad-actor behavior/ill-formed protocol messages from a peer is disconnection.  There is little to be gained and potentially much to be lost from further communication or "error reporting."
+The preferred response to all bad-actor behavior/ill-formed protocol messages from a peer is disconnection.  There is little to be gained (and potentially much to be lost) from further communication or "error reporting."
