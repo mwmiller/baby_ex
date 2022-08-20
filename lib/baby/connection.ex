@@ -120,31 +120,25 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :hello, %{pkt: [{1, hello} | rest]} = conn_info) do
-    case hello do
-      <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> ->
-        peer = their_pk |> Baobab.b62identity()
-        short_peer = "~" <> (peer |> String.slice(0..6))
+    with <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
+           hello,
+         true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
+      peer = their_pk |> Baobab.b62identity()
+      short_peer = "~" <> (peer |> String.slice(0..6))
 
-        case Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
-          false ->
-            disconnect(conn_info)
+      nci =
+        Map.merge(conn_info, %{
+          short_peer: short_peer,
+          peer: peer,
+          their_pk: their_pk,
+          their_epk: their_epk
+        })
 
-          true ->
-            nci =
-              Map.merge(conn_info, %{
-                short_peer: short_peer,
-                peer: peer,
-                their_pk: their_pk,
-                their_epk: their_epk
-              })
+      log_traffic(nci, :in, :HELLO)
 
-            log_traffic(nci, :in, :HELLO)
-
-            {:next_state, :auth, %{nci | pkt: rest}, [{:next_event, :internal, :send_auth}]}
-        end
-
-      _ ->
-        disconnect(conn_info)
+      {:next_state, :auth, %{nci | pkt: rest}, [{:next_event, :internal, :send_auth}]}
+    else
+      _ -> disconnect(conn_info)
     end
   end
 
@@ -176,35 +170,22 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :auth, %{pkt: [{2, _} | rest]} = conn_info) do
-    case unpack_nonce_box(conn_info) do
-      {:stop, reason} ->
-        {:stop, reason}
+    with {sig, nci} <- unpack_nonce_box(conn_info),
+         true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
+      Logger.info([nci.short_peer, " connected"])
 
-      {sig, nci} ->
-        log_traffic(nci, :in, :AUTH)
-
-        case Kcl.valid_signature?(
-               sig,
-               nci.clump_id <> nci.send_key,
-               nci.their_pk
-             ) do
-          false ->
-            disconnect(nci)
-
-          true ->
-            Logger.info([nci.short_peer, " connected"])
-
-            {:next_state, :replicate,
-             Map.drop(nci, [
-               :our_pk,
-               :our_sk,
-               :our_esk,
-               :our_epk,
-               :their_pk,
-               :their_epk
-             ])
-             |> Map.merge(%{pkt: rest}), [@idle_timeout, {:next_event, :internal, :send_have}]}
-        end
+      {:next_state, :replicate,
+       Map.drop(nci, [
+         :our_pk,
+         :our_sk,
+         :our_esk,
+         :our_epk,
+         :their_pk,
+         :their_epk
+       ])
+       |> Map.merge(%{pkt: rest}), [@idle_timeout, {:next_event, :internal, :send_have}]}
+    else
+      _ -> disconnect(conn_info)
     end
   end
 
@@ -219,29 +200,16 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :replicate, %{pkt: [{3, _} | rest]} = conn_info) do
-    case unpack_nonce_box(conn_info) do
-      {:stop, reason} ->
-        {:stop, reason}
+    with {stlv, new_conn} <- unpack_nonce_box(conn_info),
+         {msg_type, cbor, ""} <- Stlv.decode(stlv),
+         {:ok, decoded, ""} <- CBOR.decode(cbor) do
+      what = @replication_msg[msg_type]
+      log_traffic(new_conn, :in, what, decoded)
+      nci = replication_action(decoded, new_conn, what)
 
-      {stlv, new_conn} ->
-        nci =
-          case Stlv.decode(stlv) do
-            {msg_type, cbor, ""} ->
-              case CBOR.decode(cbor) do
-                {:ok, decoded, ""} ->
-                  what = @replication_msg[msg_type]
-                  log_traffic(new_conn, :in, what, decoded)
-                  replication_action(decoded, new_conn, what)
-
-                _ ->
-                  disconnect(new_conn)
-              end
-
-            _ ->
-              disconnect(new_conn)
-          end
-
-        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+      {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+    else
+      _ -> disconnect(conn_info)
     end
   end
 
@@ -377,13 +345,13 @@ defmodule Baby.Connection do
     case MapSet.member?(conn_info.their_nonces, nonce) do
       true ->
         Logger.warn([tilde_peer(conn_info), " possible replay attack via reused nonce"])
-        disconnect(conn_info)
+        :replay
 
       false ->
         case Kcl.secretunbox(box, nonce, recv_key) do
           :error ->
             Logger.error([tilde_peer(conn_info), " unboxing error"])
-            disconnect(conn_info)
+            :unbox
 
           msg ->
             {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
