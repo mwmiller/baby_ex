@@ -317,6 +317,9 @@ defmodule Baby.Connection do
     send_our(rest, nci)
   end
 
+  # Do not bother sending empty arrays
+  defp encode_replication([], _, conn_info), do: conn_info
+
   defp encode_replication(msg, type, conn_info) do
     msg
     |> CBOR.encode()
