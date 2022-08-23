@@ -199,6 +199,21 @@ defmodule Baby.Connection do
     end
   end
 
+  def handle_event(:internal, :data, state, %{pkt: [{type, _} | _]} = conn_info) do
+    stype =
+      case @proto_msg[type] do
+        nil -> Integer.to_string(type)
+        a -> Atom.to_string(a)
+      end
+
+    Logger.warn(
+      tilde_peer(conn_info) <>
+        " sent type " <> stype <> " message in state " <> Atom.to_string(state)
+    )
+
+    disconnect(conn_info)
+  end
+
   def handle_event(:internal, :data, _, conn_info) do
     {:keep_state, conn_info, [@idle_timeout]}
   end
