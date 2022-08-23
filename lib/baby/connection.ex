@@ -81,7 +81,7 @@ defmodule Baby.Connection do
     %{
       pid: self(),
       have: stored_info_map(),
-      want: MapSet.new(),
+      want: %{},
       clump_id: Keyword.get(opts, :clump_id, "Quagga"),
       socket: socket,
       transport: transport,
@@ -241,19 +241,15 @@ defmodule Baby.Connection do
     import_summary(rest, %{
       conn_info
       | have: Map.merge(conn_info.have, %{{a, l} => e}),
-        want:
-          Enum.reduce([{a}, {a, l}, {a, l, e}], conn_info.want, fn elem, acc ->
-            MapSet.delete(acc, elem)
-          end)
+        want: Map.drop(conn_info.want, [{a}, {a, l}, {a, l, e}])
     })
   end
 
   defp request_their([], conn_info, wants) do
     # When talking directly to the source, get as much
     # as one can of their logs.
-    short_list = (wants ++ [{conn_info.peer}]) |> reduce_wants
-    short_set = short_list |> MapSet.new() |> MapSet.union(conn_info.want)
-    encode_replication(short_list, :WANT, %{conn_info | want: short_set})
+    short_map = Map.merge(conn_info.want, reduce_wants(wants ++ [{conn_info.peer}]))
+    encode_replication(Map.keys(short_map), :WANT, %{conn_info | want: short_map})
   end
 
   defp request_their([[a, l, e] | rest], conn_info, acc) do
@@ -387,7 +383,7 @@ defmodule Baby.Connection do
         Logger.debug([
           dude,
           " unrequited wants: ",
-          conn_info.want |> MapSet.size() |> Integer.to_string()
+          conn_info.want |> Map.keys() |> Enum.count() |> Integer.to_string()
         ])
     end
 
@@ -396,7 +392,7 @@ defmodule Baby.Connection do
 
   # Bad time complexity all up in here.
   defp reduce_wants(wants), do: wants |> Enum.sort() |> Enum.uniq() |> reduce_wants([])
-  defp reduce_wants([], acc), do: acc
+  defp reduce_wants([], acc), do: acc |> Enum.reduce(%{}, fn e, a -> Map.put(a, e, true) end)
 
   # Full logs for author means no need for partials
   # or individual logs
