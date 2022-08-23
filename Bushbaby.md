@@ -56,7 +56,7 @@ Nodes should take care neither to send nor accept repeated nonces in a given con
 
 ### Handshake
 
-Each Bushbaby peer is presumed to have a long-term ED25519 identity by which it wishes to be known.  It may or may not publish logs under this identity.  However, having a stable long-term identity will promote better connectivity.  Peers may choose not to connect with unknowns or take other message-dropping measures which hurt propagation.
+Each Bushbaby peer is presumed to have a long-term ED25519 identity by which it wishes to be known.  It may or may not publish logs under this identity.  Even if not, having a stable long-term identity will promote better connectivity.  Peers may choose not to connect with unknowns or take other message-dropping measures which hurt propagation.
 
 An ephemeral Curve25519 key pair is created per-connection to secure the communications in that connection.  This handshake section describes that key exchange.
 
@@ -74,7 +74,7 @@ A received "HELLO" packet allows the peer to confirm a shared clump identifier a
 
 The "AUTH" message is used to establish a trusted channel between peers which have exchanged "HELLO" messages.
 
-Two keys are derived from the available information.  
+Two keys are derived from the available information.
 
 The "send key" will be used to create secret boxes readable by the peer. It is the 256-bit Blake2b hash of the Curve25519 secret derived from:
 
@@ -88,15 +88,13 @@ The "send key" will be used to create secret boxes readable by the peer. It is t
 
 The clump identifier is concatenated with the receive key and signed with the node's longterm key.  This is sent in a "nonce box" STLV-encoded message of type `2`.
 
-A received "AUTH" packet allows the peer to confirm agreement on identities and keys to be used throughout the rest of the protocol.
+A received "AUTH" packet allows the peer to confirm agreement on identities and keys to be used throughout the replication connection.
 
-### Replication -- Type 3 messages
+### Replication 
 
-The "REPLICATE" messages are used to exchange metadata about logs and the logs themselves.  Each message is an independent "nonce box" with a CBOR-encoded array of data.  While implementations may use internal state for decision-making with regard to traffic, there is no requirement to maintain any state with respect to "REPLICATE" messages.
+Once the handshake is complete, peers enter the replication state. The replication messages are used to exchange metadata about logs and the logs themselves.  Each message is an independent "nonce box" with a CBOR-encoded array of data.  While implementations may use internal state for decision-making with regard to traffic, there is no requirement to maintain any state with respect to replication messages.
 
-The type `3` nonce boxes are expected to contain an STLV-encoded message with one of the sub-types  enumerated below.
-
-#### Type 1 -- "HAVE"
+#### Type 5 -- "HAVE"
 
 This message type indicates the logs which the node has stored locally and is willing to share.  Its data portion should be an array of length 3 arrays containing:
 
@@ -104,7 +102,7 @@ This message type indicates the logs which the node has stored locally and is wi
 	- integer log id
 	- integer maximum available sequence number
 
-#### Type 2 -- "WANT"
+#### Type 6 -- "WANT"
 
 This message type indicates the logs which the node is interested in acquiring.  Its data portion should be an array of arrays.  The arrays should consist of a base62-encoded source identity and integers for the other values.
 
@@ -121,7 +119,7 @@ This message type contains an array of Bamboo objects.  Each array element shoul
 
 ### Peering Notes
 
-It is worth noting, once again, that there is no request/response cycle in the protocol. Each message stands on its own. This might lead to deadlocks between ill-behaved peers.  Idle timeouts should be implemented to close connections which do not seem to be advancing propagation.  
+It is worth noting, once again, that there is no request/response cycle in the protocol. Each message stands on its own. This might lead to deadlocks between ill-behaved peers.  Idle timeouts should be implemented to close connections which do not seem to be advancing propagation.
 
 It is also likely advantageous for a node to maintain information about the behavior of its peers. Such information can help determine appropriate handling of future connections and messages. 
 

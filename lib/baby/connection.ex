@@ -3,17 +3,11 @@ defmodule Baby.Connection do
   @behaviour :ranch_protocol
   require Logger
 
-  @protodef %{0 => :BYE, 1 => :HELLO, 2 => :AUTH, 3 => :REPLICATE}
+  @protodef %{0 => :BYE, 1 => :HELLO, 2 => :AUTH, 5 => :HAVE, 6 => :WANT, 8 => :BAMB}
   @proto_msg Map.merge(
                @protodef,
                @protodef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
              )
-
-  @repdef %{1 => :HAVE, 2 => :WANT, 8 => :BAMB}
-  @replication_msg Map.merge(
-                     @repdef,
-                     @repdef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
-                   )
   @idle_timeout {{:timeout, :idle}, 8599, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
@@ -191,11 +185,11 @@ defmodule Baby.Connection do
     {:keep_state, nci, []}
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: [{3, _} | rest]} = conn_info) do
-    with {stlv, new_conn} <- unpack_nonce_box(conn_info),
-         {msg_type, cbor, ""} <- Stlv.decode(stlv),
+  def handle_event(:internal, :data, :replicate, %{pkt: [{type, _} | rest]} = conn_info)
+      when type in [5, 6, 8] do
+    with {cbor, new_conn} <- unpack_nonce_box(conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      what = @replication_msg[msg_type]
+      what = @proto_msg[type]
       log_traffic(new_conn, :in, what)
       nci = replication_action(decoded, new_conn, what)
 
@@ -316,8 +310,7 @@ defmodule Baby.Connection do
   defp encode_replication(msg, type, conn_info) do
     msg
     |> CBOR.encode()
-    |> Stlv.encode(@replication_msg[type])
-    |> pack_and_ship_nonce_box(conn_info, :REPLICATE, type)
+    |> pack_and_ship_nonce_box(conn_info, type)
 
     conn_info
   end
@@ -380,12 +373,6 @@ defmodule Baby.Connection do
 
       dude ->
         Logger.info([dude <> " disconnected"])
-
-        Logger.debug([
-          dude,
-          " unrequited wants: ",
-          conn_info.want |> Map.keys() |> Enum.count() |> Integer.to_string()
-        ])
     end
 
     {:stop, :normal}
