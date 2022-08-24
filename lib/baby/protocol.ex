@@ -39,7 +39,7 @@ defmodule Baby.Protocol do
 
     (conn_info.clump_id <> recv_key)
     |> Kcl.sign(conn_info.our_sk)
-    |> Connection.pack_and_ship_nonce_box(nci, :AUTH)
+    |> pack_and_ship_nonce_box(nci, :AUTH)
 
     nci
   end
@@ -51,18 +51,75 @@ defmodule Baby.Protocol do
     |> encode_replication(:HAVE, conn_info)
   end
 
-  def inbound(data, conn_info, :HAVE), do: request_their(data, conn_info, [])
-  def inbound(data, conn_info, :WANT), do: send_our(data, conn_info)
-  def inbound(data, conn_info, :BAMB), do: import_their(data, conn_info)
+  def inbound(data, conn_info, :HAVE) do
+    with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
+         {:ok, decoded, ""} <- CBOR.decode(cbor) do
+      want_their(decoded, new_conn, [])
+    else
+      _ -> :error
+    end
+  end
 
-  defp request_their([], conn_info, wants) do
+  def inbound(data, conn_info, :WANT) do
+    with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
+         {:ok, decoded, ""} <- CBOR.decode(cbor) do
+      send_our(decoded, new_conn)
+    else
+      _ -> :error
+    end
+  end
+
+  def inbound(data, conn_info, :BAMB) do
+    with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
+         {:ok, decoded, ""} <- CBOR.decode(cbor) do
+      import_their(decoded, new_conn)
+    else
+      _ -> :error
+    end
+  end
+
+  def inbound(data, conn_info, :HELLO) do
+    with <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
+           data,
+         true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
+      peer = their_pk |> Baobab.b62identity()
+      short_peer = "~" <> (peer |> String.slice(0..6))
+
+      Map.merge(conn_info, %{
+        short_peer: short_peer,
+        peer: peer,
+        their_pk: their_pk,
+        their_epk: their_epk
+      })
+    else
+      _ -> :error
+    end
+  end
+
+  def inbound(data, conn_info, :AUTH) do
+    with {sig, nci} <- unpack_nonce_box(data, conn_info),
+         true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
+      Map.drop(nci, [
+        :our_pk,
+        :our_sk,
+        :our_esk,
+        :our_epk,
+        :their_pk,
+        :their_epk
+      ])
+    else
+      _ -> :error
+    end
+  end
+
+  defp want_their([], conn_info, wants) do
     # When talking directly to the source, get as much
     # as one can of their logs.
     short_map = Map.merge(conn_info.want, reduce_wants(wants ++ [{conn_info.peer}]))
     encode_replication(Map.keys(short_map), :WANT, %{conn_info | want: short_map})
   end
 
-  defp request_their([[a, l, e] | rest], conn_info, acc) do
+  defp want_their([[a, l, e] | rest], conn_info, acc) do
     we_have = Map.get(conn_info.have, {a, l}, 0)
 
     add =
@@ -75,7 +132,7 @@ defmodule Baby.Protocol do
         we_have >= e -> []
       end
 
-    request_their(rest, conn_info, acc ++ add)
+    want_their(rest, conn_info, acc ++ add)
   end
 
   # Bad time complexity all up in here.
@@ -197,8 +254,41 @@ defmodule Baby.Protocol do
   defp encode_replication(msg, type, conn_info) do
     msg
     |> CBOR.encode()
-    |> Connection.pack_and_ship_nonce_box(conn_info, type)
+    |> pack_and_ship_nonce_box(conn_info, type)
 
     conn_info
+  end
+
+  def unpack_nonce_box({_, <<nonce::binary-size(24), box::binary>>}, conn_info) do
+    case MapSet.member?(conn_info.their_nonces, nonce) do
+      true ->
+        Logger.warn([Connection.tilde_peer(conn_info), " possible replay attack via reused nonce"])
+
+        :replay
+
+      false ->
+        case Kcl.secretunbox(box, nonce, conn_info.recv_key) do
+          :error ->
+            Logger.error([Connection.tilde_peer(conn_info), " unboxing error"])
+            :unbox
+
+          msg ->
+            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
+        end
+    end
+  end
+
+  def pack_and_ship_nonce_box(msg, conn_info, type, wrapped_type \\ nil) do
+    nonce = :rand.bytes(24)
+
+    st =
+      case wrapped_type do
+        nil -> type
+        wt -> wt
+      end
+
+    (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
+    |> Stlv.encode(@proto_msg[type])
+    |> Connection.send_packet(conn_info, st)
   end
 end

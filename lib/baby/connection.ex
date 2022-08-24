@@ -4,7 +4,7 @@ defmodule Baby.Connection do
   require Logger
   alias Baby.Protocol
 
-  @idle_timeout {{:timeout, :idle}, 8599, :nothing_happening}
+  @idle_timeout {{:timeout, :idle}, 27901, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
 
@@ -101,62 +101,62 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:internal, :data, :hello, %{pkt: [{1, hello} | rest]} = conn_info) do
-    with <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
-           hello,
-         true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
-      peer = their_pk |> Baobab.b62identity()
-      short_peer = "~" <> (peer |> String.slice(0..6))
+    case Protocol.inbound(hello, conn_info, :HELLO) do
+      :error ->
+        disconnect(conn_info)
 
-      nci =
-        Map.merge(conn_info, %{
-          short_peer: short_peer,
-          peer: peer,
-          their_pk: their_pk,
-          their_epk: their_epk
-        })
-
-      log_traffic(nci, :in, :HELLO)
-
-      {:next_state, :auth, %{nci | pkt: rest}, []}
-    else
-      _ -> disconnect(conn_info)
+      nci ->
+        log_traffic(nci, :in, :HELLO)
+        {:next_state, :auth, %{nci | pkt: rest}, []}
     end
   end
 
-  def handle_event(:internal, :data, :auth, %{pkt: [{2, _} | rest]} = conn_info) do
+  def handle_event(:internal, :data, :auth, %{pkt: [{2, _} = nonce_box | rest]} = conn_info) do
     log_traffic(conn_info, :in, :AUTH)
 
-    with {sig, nci} <- unpack_nonce_box(conn_info),
-         true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
-      Logger.info([nci.short_peer, " connected"])
-
-      {:next_state, :replicate,
-       Map.drop(nci, [
-         :our_pk,
-         :our_sk,
-         :our_esk,
-         :our_epk,
-         :their_pk,
-         :their_epk
-       ])
-       |> Map.merge(%{pkt: rest}), [@idle_timeout]}
-    else
-      _ ->
+    case Protocol.inbound(nonce_box, conn_info, :AUTH) do
+      :error ->
         disconnect(conn_info)
+
+      nci ->
+        Logger.info([nci.short_peer, " connected"])
+        {:next_state, :replicate, %{nci | pkt: rest}, [@idle_timeout]}
     end
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: [{type, _} | rest]} = conn_info)
-      when type in [5, 6, 8] do
-    with {cbor, new_conn} <- unpack_nonce_box(conn_info),
-         {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      what = Protocol.msglookup(type)
-      log_traffic(new_conn, :in, what)
-      nci = Protocol.inbound(decoded, new_conn, what)
+  def handle_event(:internal, :data, :replicate, %{pkt: [{5, _} = nonce_box | rest]} = conn_info) do
+    log_traffic(conn_info, :in, :HAVE)
 
-      {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
-    else
-      _ -> disconnect(conn_info)
+    case Protocol.inbound(nonce_box, conn_info, :HAVE) do
+      :error ->
+        disconnect(conn_info)
+
+      nci ->
+        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+    end
+  end
+
+  def handle_event(:internal, :data, :replicate, %{pkt: [{6, _} = nonce_box | rest]} = conn_info) do
+    log_traffic(conn_info, :in, :WANT)
+
+    case Protocol.inbound(nonce_box, conn_info, :WANT) do
+      :error ->
+        disconnect(conn_info)
+
+      nci ->
+        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+    end
+  end
+
+  def handle_event(:internal, :data, :replicate, %{pkt: [{8, _} = nonce_box | rest]} = conn_info) do
+    log_traffic(conn_info, :in, :BAMB)
+
+    case Protocol.inbound(nonce_box, conn_info, :BAMB) do
+      :error ->
+        disconnect(conn_info)
+
+      nci ->
+        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
     end
   end
 
@@ -177,40 +177,6 @@ defmodule Baby.Connection do
 
   def handle_event(:internal, :data, _, conn_info) do
     {:keep_state, conn_info, [@idle_timeout]}
-  end
-
-  def pack_and_ship_nonce_box(msg, conn_info, type, wrapped_type \\ nil) do
-    nonce = :rand.bytes(24)
-
-    st =
-      case wrapped_type do
-        nil -> type
-        wt -> wt
-      end
-
-    (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
-    |> Stlv.encode(Protocol.msglookup(type))
-    |> send_packet(conn_info, st)
-  end
-
-  def unpack_nonce_box(
-        %{pkt: [{_, <<nonce::binary-size(24), box::binary>>} | _], recv_key: recv_key} = conn_info
-      ) do
-    case MapSet.member?(conn_info.their_nonces, nonce) do
-      true ->
-        Logger.warn([tilde_peer(conn_info), " possible replay attack via reused nonce"])
-        :replay
-
-      false ->
-        case Kcl.secretunbox(box, nonce, recv_key) do
-          :error ->
-            Logger.error([tilde_peer(conn_info), " unboxing error"])
-            :unbox
-
-          msg ->
-            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
-        end
-    end
   end
 
   defp wire_buffer(data, conn_info) do
