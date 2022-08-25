@@ -1,6 +1,5 @@
 defmodule Baby.Protocol do
-  require Logger
-  alias Baby.Connection
+  alias Baby.Util
 
   @protodef %{
     :HELLO => %{type: 1, instate: :hello, outstate: :auth},
@@ -123,7 +122,7 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
          true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
-      Logger.info(conn_info.short_peer <> " connected")
+      Util.connection_log(conn_info, :both, "connected", :info)
 
       Map.drop(nci, [
         :our_pk,
@@ -254,12 +253,7 @@ defmodule Baby.Protocol do
   defp import_summary([], conn_info), do: conn_info
 
   defp import_summary([{:error, reason} | rest], conn_info) do
-    Enum.join(
-      [conn_info.short_peer, Connection.arrow(:in), "import error:", reason],
-      " "
-    )
-    |> Logger.warn()
-
+    Util.connection_log(conn_info, :in, "import error:" <> reason, :warn)
     import_summary(rest, conn_info)
   end
 
@@ -287,14 +281,13 @@ defmodule Baby.Protocol do
   def unpack_nonce_box({_, <<nonce::binary-size(24), box::binary>>}, conn_info) do
     case MapSet.member?(conn_info.their_nonces, nonce) do
       true ->
-        Logger.warn([conn_info.short_peer, " possible replay attack via reused nonce"])
-
+        Util.connection_log(conn_info, :in, "possible replay attack via reused nonce", :warn)
         :replay
 
       false ->
         case Kcl.secretunbox(box, nonce, conn_info.recv_key) do
           :error ->
-            Logger.error([Connection.tilde_peer(conn_info), " unboxing error"])
+            Util.connection_log(conn_info, :in, "unboxing error", :error)
             :unbox
 
           msg ->

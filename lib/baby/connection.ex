@@ -1,12 +1,11 @@
 defmodule Baby.Connection do
   @behaviour :gen_statem
   @behaviour :ranch_protocol
-  require Logger
-  alias Baby.Protocol
+  alias Baby.{Protocol, Util}
 
   @inrate 101
   @outrate 103
-  @idle_timeout {{:timeout, :idle}, 27901, :nothing_happening}
+  @idle_timeout {{:timeout, :idle}, 10601, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
 
@@ -58,11 +57,7 @@ defmodule Baby.Connection do
   end
 
   @impl true
-  def terminate(_, conn_info, _data) when is_map(conn_info) do
-    Logger.debug("Terminating")
-    close_connection(conn_info)
-  end
-
+  def terminate(_, conn_info, _data) when is_map(conn_info), do: close_connection(conn_info)
   def terminate(_, _, _), do: :ok
 
   def initial_conn_info(opts, socket, transport) do
@@ -95,7 +90,7 @@ defmodule Baby.Connection do
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
 
   def handle_event(:info, :outbox, _, %{outbox: [{packet, type} | rest]} = conn_info) do
-    log_traffic(conn_info, :out, type)
+    Util.connection_log(conn_info, :out, type)
     send_packet(packet, conn_info)
     Process.send_after(conn_info.pid, :outbox, @outrate)
     {:keep_state, %{conn_info | outbox: rest}, [@idle_timeout]}
@@ -132,7 +127,7 @@ defmodule Baby.Connection do
           disconnect(conn_info)
 
         nci ->
-          log_traffic(nci, :in, unquote(name))
+          Util.connection_log(nci, :in, unquote(name))
           Process.send_after(nci.pid, :inbox, @inrate, [])
           {:next_state, unquote(outstate), %{nci | inbox: rest}, []}
       end
@@ -147,9 +142,11 @@ defmodule Baby.Connection do
         a -> Atom.to_string(a)
       end
 
-    Logger.warn(
-      tilde_peer(conn_info) <>
-        " sent type " <> stype <> " message in state " <> Atom.to_string(state)
+    Util.connection_log(
+      conn_info,
+      :in,
+      "type " <> stype <> " message in state " <> Atom.to_string(state),
+      :warn
     )
 
     disconnect(conn_info)
@@ -178,12 +175,10 @@ defmodule Baby.Connection do
   end
 
   defp disconnect(conn_info) do
-    case tilde_peer(conn_info) do
-      "~unknown" ->
-        :ok
-
-      dude ->
-        Logger.info([dude <> " disconnected"])
+    # We don't want to log health check connections
+    case Map.has_key?(conn_info, :short_peer) do
+      false -> :ok
+      true -> Util.connection_log(conn_info, :both, "disconnected", :info)
     end
 
     {:stop, :normal}
@@ -202,21 +197,6 @@ defmodule Baby.Connection do
 
   defp close_connection(%{:transport => transport, :socket => socket}),
     do: transport.close(socket)
-
-  def arrow(:in), do: "→"
-  def arrow(:out), do: "←"
-
-  defp log_traffic(conn_info, dir, type) do
-    Enum.join([tilde_peer(conn_info), arrow(dir), Atom.to_string(type)], " ")
-    |> Logger.debug()
-  end
-
-  def tilde_peer(conn_info) do
-    case Map.fetch(conn_info, :short_peer) do
-      {:ok, them} -> them
-      :error -> "~unknown"
-    end
-  end
 
   defp stored_info_map() do
     Baobab.stored_info() |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
