@@ -15,9 +15,8 @@ defmodule Baby.Protocol do
 
     (conn_info.our_pk <> epk <> Kcl.auth(epk, conn_info.clump_id))
     |> Stlv.encode(@proto_msg[type])
-    |> Connection.send_packet(conn_info, type)
-
-    Map.merge(conn_info, %{our_epk: epk, our_esk: esk})
+    |> enqueue_packet(conn_info, type)
+    |> Map.merge(%{our_epk: epk, our_esk: esk})
   end
 
   def outbound(conn_info, :AUTH) do
@@ -40,8 +39,6 @@ defmodule Baby.Protocol do
     (conn_info.clump_id <> recv_key)
     |> Kcl.sign(conn_info.our_sk)
     |> pack_and_ship_nonce_box(nci, :AUTH)
-
-    nci
   end
 
   def outbound(conn_info, :HAVE) do
@@ -272,8 +269,6 @@ defmodule Baby.Protocol do
     msg
     |> CBOR.encode()
     |> pack_and_ship_nonce_box(conn_info, type)
-
-    conn_info
   end
 
   def unpack_nonce_box({_, <<nonce::binary-size(24), box::binary>>}, conn_info) do
@@ -295,7 +290,7 @@ defmodule Baby.Protocol do
     end
   end
 
-  def pack_and_ship_nonce_box(msg, conn_info, type, wrapped_type \\ nil) do
+  defp pack_and_ship_nonce_box(msg, conn_info, type, wrapped_type \\ nil) do
     nonce = :rand.bytes(24)
 
     st =
@@ -306,6 +301,8 @@ defmodule Baby.Protocol do
 
     (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
     |> Stlv.encode(@proto_msg[type])
-    |> Connection.send_packet(conn_info, st)
+    |> enqueue_packet(conn_info, st)
   end
+
+  defp enqueue_packet(packet, ci, type), do: %{ci | outbox: ci.outbox ++ [{packet, type}]}
 end

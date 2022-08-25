@@ -4,6 +4,8 @@ defmodule Baby.Connection do
   require Logger
   alias Baby.Protocol
 
+  @inrate 101
+  @outrate 103
   @idle_timeout {{:timeout, :idle}, 27901, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
@@ -65,6 +67,8 @@ defmodule Baby.Connection do
 
   def initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
+    Process.send_after(self(), :outbox, @outrate, [])
+    Process.send_after(self(), :inbox, @inrate, [])
 
     %{
       pid: self(),
@@ -77,7 +81,8 @@ defmodule Baby.Connection do
       our_pk: Baobab.identity_key(identity, :public),
       our_sk: Baobab.identity_key(identity, :secret),
       their_nonces: MapSet.new(),
-      pkt: [],
+      inbox: [],
+      outbox: [],
       wire: <<>>
     }
   end
@@ -88,6 +93,18 @@ defmodule Baby.Connection do
 
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
+
+  def handle_event(:info, :outbox, _, %{outbox: [{packet, type} | rest]} = conn_info) do
+    log_traffic(conn_info, :out, type)
+    send_packet(packet, conn_info)
+    Process.send_after(conn_info.pid, :outbox, @outrate)
+    {:keep_state, %{conn_info | outbox: rest}, [@idle_timeout]}
+  end
+
+  def handle_event(:info, :outbox, _, %{outbox: []} = conn_info) do
+    Process.send_after(conn_info.pid, :outbox, @outrate)
+    {:keep_state, conn_info, []}
+  end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
     {:keep_state, Protocol.outbound(conn_info, :HELLO), []}
@@ -101,18 +118,19 @@ defmodule Baby.Connection do
     {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
-  def handle_event(:internal, :data, :hello, %{pkt: [{1, hello} | rest]} = conn_info) do
+  def handle_event(:info, :inbox, :hello, %{inbox: [{1, hello} | rest]} = conn_info) do
     case Protocol.inbound(hello, conn_info, :HELLO) do
       :error ->
         disconnect(conn_info)
 
       nci ->
         log_traffic(nci, :in, :HELLO)
-        {:next_state, :auth, %{nci | pkt: rest}, []}
+        Process.send_after(nci.pid, :inbox, @inrate, [])
+        {:next_state, :auth, %{nci | inbox: rest}, []}
     end
   end
 
-  def handle_event(:internal, :data, :auth, %{pkt: [{2, _} = nonce_box | rest]} = conn_info) do
+  def handle_event(:info, :inbox, :auth, %{inbox: [{2, _} = nonce_box | rest]} = conn_info) do
     log_traffic(conn_info, :in, :AUTH)
 
     case Protocol.inbound(nonce_box, conn_info, :AUTH) do
@@ -121,11 +139,17 @@ defmodule Baby.Connection do
 
       nci ->
         Logger.info([nci.short_peer, " connected"])
-        {:next_state, :replicate, %{nci | pkt: rest}, [@idle_timeout]}
+        Process.send_after(nci.pid, :inbox, @inrate, [])
+        {:next_state, :replicate, %{nci | inbox: rest}, [@idle_timeout]}
     end
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: [{5, _} = nonce_box | rest]} = conn_info) do
+  def handle_event(
+        :info,
+        :inbox,
+        :replicate,
+        %{inbox: [{5, _} = nonce_box | rest]} = conn_info
+      ) do
     log_traffic(conn_info, :in, :HAVE)
 
     case Protocol.inbound(nonce_box, conn_info, :HAVE) do
@@ -133,11 +157,17 @@ defmodule Baby.Connection do
         disconnect(conn_info)
 
       nci ->
-        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+        Process.send_after(nci.pid, :inbox, @inrate, [])
+        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
     end
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: [{6, _} = nonce_box | rest]} = conn_info) do
+  def handle_event(
+        :info,
+        :inbox,
+        :replicate,
+        %{inbox: [{6, _} = nonce_box | rest]} = conn_info
+      ) do
     log_traffic(conn_info, :in, :WANT)
 
     case Protocol.inbound(nonce_box, conn_info, :WANT) do
@@ -145,11 +175,17 @@ defmodule Baby.Connection do
         disconnect(conn_info)
 
       nci ->
-        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+        Process.send_after(nci.pid, :inbox, @inrate, [])
+        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
     end
   end
 
-  def handle_event(:internal, :data, :replicate, %{pkt: [{8, _} = nonce_box | rest]} = conn_info) do
+  def handle_event(
+        :info,
+        :inbox,
+        :replicate,
+        %{inbox: [{8, _} = nonce_box | rest]} = conn_info
+      ) do
     log_traffic(conn_info, :in, :BAMB)
 
     case Protocol.inbound(nonce_box, conn_info, :BAMB) do
@@ -157,11 +193,12 @@ defmodule Baby.Connection do
         disconnect(conn_info)
 
       nci ->
-        {:keep_state, %{nci | pkt: rest}, [@idle_timeout, {:next_event, :internal, :data}]}
+        Process.send_after(nci.pid, :inbox, @inrate, [])
+        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
     end
   end
 
-  def handle_event(:internal, :data, state, %{pkt: [{type, _} | _]} = conn_info) do
+  def handle_event(:info, :inbox, state, %{inbox: [{type, _} | _]} = conn_info) do
     stype =
       case Protocol.msglookup(type) do
         nil -> Integer.to_string(type)
@@ -176,7 +213,9 @@ defmodule Baby.Connection do
     disconnect(conn_info)
   end
 
-  def handle_event(:internal, :data, _, conn_info) do
+  # We might be out of sync, so we'll just go around again
+  def handle_event(:info, :inbox, _, conn_info) do
+    Process.send_after(conn_info.pid, :inbox, @inrate, [])
     {:keep_state, conn_info, [@idle_timeout]}
   end
 
@@ -186,11 +225,10 @@ defmodule Baby.Connection do
 
     case Stlv.decode(wire) do
       :error ->
-        {:keep_state, %{conn_info | :wire => wire},
-         [@idle_timeout, {:next_event, :internal, :data}]}
+        {:keep_state, %{conn_info | :wire => wire}, [@idle_timeout]}
 
       {type, value, rest} ->
-        wire_buffer(rest, %{conn_info | pkt: conn_info.pkt ++ [{type, value}], wire: <<>>})
+        wire_buffer(rest, %{conn_info | inbox: conn_info.inbox ++ [{type, value}], wire: <<>>})
 
       _ ->
         disconnect(conn_info)
@@ -207,11 +245,6 @@ defmodule Baby.Connection do
     end
 
     {:stop, :normal}
-  end
-
-  def send_packet(packet, ci, type) do
-    log_traffic(ci, :out, type)
-    send_packet(packet, ci)
   end
 
   def send_packet(packet, %{:transport => nil, :socket => sock}), do: :gen_tcp.send(sock, packet)
