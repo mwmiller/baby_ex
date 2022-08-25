@@ -61,10 +61,13 @@ defmodule Baby.Protocol do
     |> encode_replication(conn_info, :WANT)
   end
 
-  def outbound(conn_info, :BAMB) do
-    Enum.reduce(conn_info.shoots, conn_info, fn e, _a ->
-      encode_replication(e, conn_info, :BAMB)
-    end)
+  def outbound(%{shoots: []} = conn_info, :BAMB), do: conn_info
+
+  def outbound(%{shoots: [s | rest]} = conn_info, :BAMB) do
+    s
+    |> encode_replication(conn_info, :BAMB)
+    |> Map.merge(%{shoots: rest})
+    |> outbound(:BAMB)
   end
 
   def inbound(data, conn_info, :HAVE) do
