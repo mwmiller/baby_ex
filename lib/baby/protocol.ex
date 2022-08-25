@@ -1,11 +1,17 @@
 defmodule Baby.Protocol do
   require Logger
   alias Baby.Connection
-  @protodef %{0 => :BYE, 1 => :HELLO, 2 => :AUTH, 5 => :HAVE, 6 => :WANT, 8 => :BAMB}
-  @proto_msg Map.merge(
-               @protodef,
-               @protodef |> Map.to_list() |> Map.new(fn {k, v} -> {v, k} end)
-             )
+
+  @protodef %{
+    :HELLO => %{type: 1, instate: :hello},
+    :AUTH => %{type: 2, instate: :auth},
+    :HAVE => %{type: 5, instate: :replicate},
+    :WANT => %{type: 6, instate: :replicate},
+    :BAMB => %{type: 8, instate: :replicate}
+  }
+  @proto_msg @protodef
+             |> Map.to_list()
+             |> Enum.reduce(%{}, fn {k, %{type: n}}, a -> Map.merge(a, %{k => n, n => k}) end)
 
   def msglookup(val), do: Map.fetch!(@proto_msg, val)
 
