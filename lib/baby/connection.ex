@@ -118,86 +118,28 @@ defmodule Baby.Connection do
     {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
-  def handle_event(:info, :inbox, :hello, %{inbox: [{1, _} = packet | rest]} = conn_info) do
-    case Protocol.inbound(packet, conn_info, :HELLO) do
-      :error ->
-        disconnect(conn_info)
+  # Write out the proto handlers
+  for {name, %{type: type, instate: instate, outstate: outstate}} <-
+        Protocol.definition() |> Map.to_list() do
+    def handle_event(
+          :info,
+          :inbox,
+          unquote(instate),
+          %{inbox: [{unquote(type), _} = packet | rest]} = conn_info
+        ) do
+      case Protocol.inbound(packet, conn_info, unquote(name)) do
+        :error ->
+          disconnect(conn_info)
 
-      nci ->
-        log_traffic(nci, :in, :HELLO)
-        Process.send_after(nci.pid, :inbox, @inrate, [])
-        {:next_state, :auth, %{nci | inbox: rest}, []}
+        nci ->
+          log_traffic(nci, :in, unquote(name))
+          Process.send_after(nci.pid, :inbox, @inrate, [])
+          {:next_state, unquote(outstate), %{nci | inbox: rest}, []}
+      end
     end
   end
 
-  def handle_event(:info, :inbox, :auth, %{inbox: [{2, _} = nonce_box | rest]} = conn_info) do
-    log_traffic(conn_info, :in, :AUTH)
-
-    case Protocol.inbound(nonce_box, conn_info, :AUTH) do
-      :error ->
-        disconnect(conn_info)
-
-      nci ->
-        Logger.info([nci.short_peer, " connected"])
-        Process.send_after(nci.pid, :inbox, @inrate, [])
-        {:next_state, :replicate, %{nci | inbox: rest}, [@idle_timeout]}
-    end
-  end
-
-  def handle_event(
-        :info,
-        :inbox,
-        :replicate,
-        %{inbox: [{5, _} = nonce_box | rest]} = conn_info
-      ) do
-    log_traffic(conn_info, :in, :HAVE)
-
-    case Protocol.inbound(nonce_box, conn_info, :HAVE) do
-      :error ->
-        disconnect(conn_info)
-
-      nci ->
-        Process.send_after(nci.pid, :inbox, @inrate, [])
-        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
-    end
-  end
-
-  def handle_event(
-        :info,
-        :inbox,
-        :replicate,
-        %{inbox: [{6, _} = nonce_box | rest]} = conn_info
-      ) do
-    log_traffic(conn_info, :in, :WANT)
-
-    case Protocol.inbound(nonce_box, conn_info, :WANT) do
-      :error ->
-        disconnect(conn_info)
-
-      nci ->
-        Process.send_after(nci.pid, :inbox, @inrate, [])
-        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
-    end
-  end
-
-  def handle_event(
-        :info,
-        :inbox,
-        :replicate,
-        %{inbox: [{8, _} = nonce_box | rest]} = conn_info
-      ) do
-    log_traffic(conn_info, :in, :BAMB)
-
-    case Protocol.inbound(nonce_box, conn_info, :BAMB) do
-      :error ->
-        disconnect(conn_info)
-
-      nci ->
-        Process.send_after(nci.pid, :inbox, @inrate, [])
-        {:keep_state, %{nci | inbox: rest}, [@idle_timeout]}
-    end
-  end
-
+  # Not defined in the protocol
   def handle_event(:info, :inbox, state, %{inbox: [{type, _} | _]} = conn_info) do
     stype =
       case Protocol.msglookup(type) do
@@ -216,7 +158,7 @@ defmodule Baby.Connection do
   # We might be out of sync, so we'll just go around again
   def handle_event(:info, :inbox, _, conn_info) do
     Process.send_after(conn_info.pid, :inbox, @inrate, [])
-    {:keep_state, conn_info, [@idle_timeout]}
+    {:keep_state, conn_info, []}
   end
 
   defp wire_buffer(data, conn_info) do

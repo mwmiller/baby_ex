@@ -3,17 +3,18 @@ defmodule Baby.Protocol do
   alias Baby.Connection
 
   @protodef %{
-    :HELLO => %{type: 1, instate: :hello},
-    :AUTH => %{type: 2, instate: :auth},
-    :HAVE => %{type: 5, instate: :replicate},
-    :WANT => %{type: 6, instate: :replicate},
-    :BAMB => %{type: 8, instate: :replicate}
+    :HELLO => %{type: 1, instate: :hello, outstate: :auth},
+    :AUTH => %{type: 2, instate: :auth, outstate: :replicate},
+    :HAVE => %{type: 5, instate: :replicate, outstate: :replicate},
+    :WANT => %{type: 6, instate: :replicate, outstate: :replicate},
+    :BAMB => %{type: 8, instate: :replicate, outstate: :replicate}
   }
   @proto_msg @protodef
              |> Map.to_list()
              |> Enum.reduce(%{}, fn {k, %{type: n}}, a -> Map.merge(a, %{k => n, n => k}) end)
 
   def msglookup(val), do: Map.fetch!(@proto_msg, val)
+  def definition(), do: @protodef
 
   def outbound(conn_info, :HELLO) do
     {esk, epk} = Kcl.generate_key_pair(:encrypt)
@@ -119,6 +120,8 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
          true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
+      Logger.info(conn_info.short_peer <> " connected")
+
       Map.drop(nci, [
         :our_pk,
         :our_sk,
@@ -249,7 +252,7 @@ defmodule Baby.Protocol do
 
   defp import_summary([{:error, reason} | rest], conn_info) do
     Enum.join(
-      [Connection.tilde_peer(conn_info), Connection.arrow(:in), "import error:", reason],
+      [conn_info.short_peer, Connection.arrow(:in), "import error:", reason],
       " "
     )
     |> Logger.warn()
@@ -281,7 +284,7 @@ defmodule Baby.Protocol do
   def unpack_nonce_box({_, <<nonce::binary-size(24), box::binary>>}, conn_info) do
     case MapSet.member?(conn_info.their_nonces, nonce) do
       true ->
-        Logger.warn([Connection.tilde_peer(conn_info), " possible replay attack via reused nonce"])
+        Logger.warn([conn_info.short_peer, " possible replay attack via reused nonce"])
 
         :replay
 
