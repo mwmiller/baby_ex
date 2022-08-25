@@ -92,8 +92,9 @@ defmodule Baby.Protocol do
   end
 
   def inbound(data, conn_info, :HELLO) do
-    with <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
-           data,
+    with {1, hello} <- data,
+         <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
+           hello,
          true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
       peer = their_pk |> Baobab.b62identity()
       short_peer = "~" <> (peer |> String.slice(0..6))

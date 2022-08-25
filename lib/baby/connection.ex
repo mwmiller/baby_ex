@@ -118,8 +118,8 @@ defmodule Baby.Connection do
     {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
-  def handle_event(:info, :inbox, :hello, %{inbox: [{1, hello} | rest]} = conn_info) do
-    case Protocol.inbound(hello, conn_info, :HELLO) do
+  def handle_event(:info, :inbox, :hello, %{inbox: [{1, _} = packet | rest]} = conn_info) do
+    case Protocol.inbound(packet, conn_info, :HELLO) do
       :error ->
         disconnect(conn_info)
 
