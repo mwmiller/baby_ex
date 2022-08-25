@@ -70,6 +70,7 @@ defmodule Baby.Connection do
       pid: self(),
       have: stored_info_map(),
       want: %{},
+      shoots: [],
       clump_id: Keyword.get(opts, :clump_id, "Quagga"),
       socket: socket,
       transport: transport,

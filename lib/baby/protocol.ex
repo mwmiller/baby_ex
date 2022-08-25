@@ -48,13 +48,27 @@ defmodule Baby.Protocol do
     conn_info.have
     |> Map.to_list()
     |> Enum.map(fn {{a, l}, e} -> {a, l, e} end)
-    |> encode_replication(:HAVE, conn_info)
+    |> encode_replication(conn_info, :HAVE)
+  end
+
+  def outbound(conn_info, :WANT) do
+    conn_info.want
+    |> Map.keys()
+    |> encode_replication(conn_info, :WANT)
+  end
+
+  def outbound(conn_info, :BAMB) do
+    Enum.reduce(conn_info.shoots, conn_info, fn e, _a ->
+      encode_replication(e, conn_info, :BAMB)
+    end)
   end
 
   def inbound(data, conn_info, :HAVE) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      want_their(decoded, new_conn, [])
+      decoded
+      |> want_their(new_conn, [])
+      |> outbound(:WANT)
     else
       _ -> :error
     end
@@ -63,7 +77,9 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :WANT) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      send_our(decoded, new_conn)
+      decoded
+      |> gather_our(new_conn)
+      |> outbound(:BAMB)
     else
       _ -> :error
     end
@@ -115,8 +131,9 @@ defmodule Baby.Protocol do
   defp want_their([], conn_info, wants) do
     # When talking directly to the source, get as much
     # as one can of their logs.
-    short_map = Map.merge(conn_info.want, reduce_wants(wants ++ [{conn_info.peer}]))
-    encode_replication(Map.keys(short_map), :WANT, %{conn_info | want: short_map})
+    Map.merge(conn_info, %{
+      want: Map.merge(conn_info.want, reduce_wants(wants ++ [{conn_info.peer}]))
+    })
   end
 
   defp want_their([[a, l, e] | rest], conn_info, acc) do
@@ -171,10 +188,10 @@ defmodule Baby.Protocol do
     reduce_wants([], partials ++ acc)
   end
 
-  defp send_our([], conn_info), do: conn_info
+  defp gather_our([], conn_info), do: %{conn_info | shoots: Enum.reverse(conn_info.shoots)}
 
   # Full logs for author
-  defp send_our([[a] | rest], conn_info) do
+  defp gather_our([[a] | rest], conn_info) do
     conn_info.have
     |> Map.keys()
     |> Enum.reduce([], fn entry, acc ->
@@ -184,40 +201,40 @@ defmodule Baby.Protocol do
       end
     end)
     |> then(fn al -> rest ++ al end)
-    |> send_our(conn_info)
+    |> gather_our(conn_info)
   end
 
   # Full log for author log_id
-  defp send_our([[a, l] | rest], conn_info) do
+  defp gather_our([[a, l] | rest], conn_info) do
     nci =
       case Baobab.full_log(a, log_id: l, format: :binary) do
         [] -> conn_info
-        entries -> encode_replication(entries, :BAMB, conn_info)
+        entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
 
-    send_our(rest, nci)
+    gather_our(rest, nci)
   end
 
   # Full chain from 1 to requested entry
-  defp send_our([[a, l, e] | rest], conn_info) do
+  defp gather_our([[a, l, e] | rest], conn_info) do
     nci =
       case Baobab.log_at(a, e, log_id: l, format: :binary) do
         [] -> conn_info
-        entries -> encode_replication(entries, :BAMB, conn_info)
+        entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
 
-    send_our(rest, nci)
+    gather_our(rest, nci)
   end
 
   # Chain links from start to end
-  defp send_our([[a, l, s, e] | rest], conn_info) do
+  defp gather_our([[a, l, s, e] | rest], conn_info) do
     nci =
       case Baobab.log_range(a, {s, e}, log_id: l, format: :binary) do
         [] -> conn_info
-        entries -> encode_replication(entries, :BAMB, conn_info)
+        entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
 
-    send_our(rest, nci)
+    gather_our(rest, nci)
   end
 
   defp import_their(stuff, conn_info) do
@@ -249,9 +266,9 @@ defmodule Baby.Protocol do
   end
 
   # Do not bother sending empty arrays
-  defp encode_replication([], _, conn_info), do: conn_info
+  defp encode_replication([], conn_info, _), do: conn_info
 
-  defp encode_replication(msg, type, conn_info) do
+  defp encode_replication(msg, conn_info, type) do
     msg
     |> CBOR.encode()
     |> pack_and_ship_nonce_box(conn_info, type)
