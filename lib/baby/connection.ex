@@ -98,19 +98,19 @@ defmodule Baby.Connection do
 
   def handle_event(:info, :outbox, _, %{outbox: []} = conn_info) do
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, conn_info, []}
+    {:keep_state, conn_info, [@idle_timeout]}
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :HELLO), []}
+    {:keep_state, Protocol.outbound(conn_info, :HELLO), [@idle_timeout]}
   end
 
   def handle_event(:enter, :hello, :auth, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :AUTH)}
+    {:keep_state, Protocol.outbound(conn_info, :AUTH), [@idle_timeout]}
   end
 
   def handle_event(:enter, :auth, :replicate, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
+    {:keep_state, Protocol.outbound(conn_info, :HAVE), [@idle_timeout]}
   end
 
   # Write out the proto handlers
@@ -129,7 +129,7 @@ defmodule Baby.Connection do
         nci ->
           Util.connection_log(nci, :in, unquote(name))
           Process.send_after(nci.pid, :inbox, @inrate, [])
-          {:next_state, unquote(outstate), %{nci | inbox: rest}, []}
+          {:next_state, unquote(outstate), %{nci | inbox: rest}, [@idle_timeout]}
       end
     end
   end
