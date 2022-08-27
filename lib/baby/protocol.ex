@@ -12,7 +12,7 @@ defmodule Baby.Protocol do
              |> Map.to_list()
              |> Enum.reduce(%{}, fn {k, %{type: n}}, a -> Map.merge(a, %{k => n, n => k}) end)
 
-  def msglookup(val), do: Map.fetch!(@proto_msg, val)
+  def msglookup(val), do: Map.get(@proto_msg, val)
   def definition(), do: @protodef
 
   def outbound(conn_info, :HELLO) do
