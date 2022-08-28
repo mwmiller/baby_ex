@@ -21,7 +21,7 @@ defmodule Baby.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:baobab, "~> 0.9.0"},
+      {:baobab, "~> 0.10.0"},
       {:kcl, "~> 1.0"},
       {:stlv, "~> 1.0"},
       {:varu64, "~> 1.0"},
