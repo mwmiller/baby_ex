@@ -19,7 +19,7 @@ defmodule Baby.Connection do
   end
 
   @impl true
-  def start_link(ref, transport, opts) do
+  def start_link(ref, _, transport, opts) do
     {:ok, :proc_lib.spawn_link(__MODULE__, :init, [{ref, transport, opts}])}
   end
 
