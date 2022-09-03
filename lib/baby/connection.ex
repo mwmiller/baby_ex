@@ -5,7 +5,7 @@ defmodule Baby.Connection do
 
   @inrate 101
   @outrate 103
-  @idle_timeout {{:timeout, :idle}, 10601, :nothing_happening}
+  @idle_timeout {{:timeout, :idle}, 7013, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
 
@@ -98,7 +98,7 @@ defmodule Baby.Connection do
 
   def handle_event(:info, :outbox, _, %{outbox: []} = conn_info) do
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, conn_info, [@idle_timeout]}
+    {:keep_state, conn_info, []}
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
