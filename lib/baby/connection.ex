@@ -49,7 +49,7 @@ defmodule Baby.Connection do
            active: :once
          ]) do
       {:ok, socket} ->
-        {:ok, :hello, initial_conn_info(opts, socket, nil), [@idle_timeout]}
+        {:ok, :hello, initial_conn_info(opts, socket, nil), []}
 
       _ ->
         {:stop, :normal}
@@ -84,7 +84,19 @@ defmodule Baby.Connection do
 
   # Generic TCP handling stuff. Non-state dependant
   @impl true
-  def handle_event({:timeout, :idle}, :nothing_happening, _, conn_info), do: disconnect(conn_info)
+  # There is nothing queued to do, go ahead and disconnect
+  def handle_event(
+        {:timeout, :idle},
+        :nothing_happening,
+        _,
+        %{inbox: [], outbox: [], shoots: []} = conn_info
+      ),
+      do: disconnect(conn_info)
+
+  # Still stuff happening, check back next period
+  def handle_event({:timeout, :idle}, :nothing_happening, _, conn_info) do
+    {:keep_state, conn_info, [@idle_timeout]}
+  end
 
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
@@ -93,14 +105,14 @@ defmodule Baby.Connection do
     Util.connection_log(conn_info, :out, type)
     send_packet(packet, conn_info)
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, %{conn_info | outbox: rest}, [@idle_timeout]}
+    {:keep_state, %{conn_info | outbox: rest}, []}
   end
 
   def handle_event(:info, :outbox, _, %{shoots: shoots} = conn_info) when length(shoots) > 0 do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, Baby.Protocol.outbound(conn_info, :BAMB), [@idle_timeout]}
+    {:keep_state, Baby.Protocol.outbound(conn_info, :BAMB), []}
   end
 
   # This has matches so that we catch if we messed up the
@@ -111,15 +123,15 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :HELLO), [@idle_timeout]}
+    {:keep_state, Protocol.outbound(conn_info, :HELLO), []}
   end
 
   def handle_event(:enter, :hello, :auth, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :AUTH), [@idle_timeout]}
+    {:keep_state, Protocol.outbound(conn_info, :AUTH), []}
   end
 
   def handle_event(:enter, :auth, :replicate, conn_info) do
-    {:keep_state, Protocol.outbound(conn_info, :HAVE), [@idle_timeout]}
+    {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
   # Write out the proto handlers
@@ -138,7 +150,7 @@ defmodule Baby.Connection do
         nci ->
           Util.connection_log(nci, :in, unquote(name))
           Process.send_after(nci.pid, :inbox, @inrate, [])
-          {:next_state, unquote(outstate), %{nci | inbox: rest}, [@idle_timeout]}
+          {:next_state, unquote(outstate), %{nci | inbox: rest}, []}
       end
     end
   end
@@ -173,7 +185,7 @@ defmodule Baby.Connection do
 
     case Stlv.decode(wire) do
       :error ->
-        {:keep_state, %{conn_info | :wire => wire}, [@idle_timeout]}
+        {:keep_state, %{conn_info | :wire => wire}, []}
 
       {type, value, rest} ->
         wire_buffer(rest, %{conn_info | inbox: conn_info.inbox ++ [{type, value}], wire: <<>>})
