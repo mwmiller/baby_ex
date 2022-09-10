@@ -96,7 +96,16 @@ defmodule Baby.Connection do
     {:keep_state, %{conn_info | outbox: rest}, [@idle_timeout]}
   end
 
-  def handle_event(:info, :outbox, _, %{outbox: []} = conn_info) do
+  def handle_event(:info, :outbox, _, %{shoots: shoots} = conn_info) when length(shoots) > 0 do
+    # We have a non-empty shoots list
+    # Yeah, this is unsatisfyingly written
+    Process.send_after(conn_info.pid, :outbox, @outrate)
+    {:keep_state, Baby.Protocol.outbound(conn_info, :BAMB), [@idle_timeout]}
+  end
+
+  # This has matches so that we catch if we messed up the
+  # enqueueing process somewhere.
+  def handle_event(:info, :outbox, _, %{outbox: [], shoots: []} = conn_info) do
     Process.send_after(conn_info.pid, :outbox, @outrate)
     {:keep_state, conn_info, []}
   end

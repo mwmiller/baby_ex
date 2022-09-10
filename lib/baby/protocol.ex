@@ -66,7 +66,6 @@ defmodule Baby.Protocol do
     s
     |> encode_replication(conn_info, :BAMB)
     |> Map.merge(%{shoots: rest})
-    |> outbound(:BAMB)
   end
 
   def inbound(data, conn_info, :HAVE) do
@@ -85,7 +84,6 @@ defmodule Baby.Protocol do
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       decoded
       |> gather_our(new_conn)
-      |> outbound(:BAMB)
     else
       _ -> :error
     end
