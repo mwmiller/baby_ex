@@ -5,7 +5,7 @@ defmodule Baby.Connection do
 
   @inrate 101
   @outrate 103
-  @idle_timeout {{:timeout, :idle}, 7013, :nothing_happening}
+  @idle_timeout {{:timeout, :idle}, 21017, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
 
