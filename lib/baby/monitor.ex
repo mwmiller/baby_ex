@@ -21,7 +21,7 @@ defmodule Baby.Monitor do
   end
 
   @impl true
-  def handle_info({:cryout, opts}, state) do
+  def handle_info({:cryout, opts}, %{identity: id, clump_id: clump} = state) do
     host = Keyword.get(opts, :host)
     Logger.info(["Crying out to ", host])
 
@@ -31,8 +31,8 @@ defmodule Baby.Monitor do
        [
          host: Baby.host_to_ip(host),
          port: Keyword.get(opts, :port),
-         identity: Application.get_env(:baby, :identity),
-         clump_id: Application.get_env(:baby, :clump_id)
+         identity: id,
+         clump_id: clump
        ]}
     )
 

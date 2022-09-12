@@ -13,8 +13,7 @@ defmodule Baby.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :ranch],
-      mod: {Baby.Application, []}
+      extra_applications: [:logger, :ranch]
     ]
   end
 
