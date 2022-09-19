@@ -57,6 +57,7 @@ defmodule Baby.Protocol do
   def outbound(conn_info, :WANT) do
     conn_info.want
     |> Map.keys()
+    |> Enum.sort()
     |> encode_replication(conn_info, :WANT)
   end
 
@@ -136,11 +137,7 @@ defmodule Baby.Protocol do
   end
 
   defp want_their([], conn_info, wants) do
-    # When talking directly to the source, get as much
-    # as one can of their logs.
-    Map.merge(conn_info, %{
-      want: Map.merge(conn_info.want, reduce_wants(wants ++ [{conn_info.peer}]))
-    })
+    Map.merge(conn_info, %{want: Map.merge(conn_info.want, reduce_wants(wants))})
   end
 
   defp want_their([[a, l, e] | rest], conn_info, acc) do
@@ -148,15 +145,20 @@ defmodule Baby.Protocol do
 
     add =
       cond do
-        # It's new to us, get everything we can
-        we_have == 0 -> [{a, l}]
-        # catch up
+        we_have == 0 -> [{a, l, e}]
         we_have < e -> [{a, l, we_have + 1, e}]
-        # We're even or ahead -- we assume they'll ask if they want more
-        we_have >= e -> []
+        # caught up, maybe fill in some missing bits this pass
+        true -> missing_bits([a, l, e])
       end
 
     want_their(rest, conn_info, acc ++ add)
+  end
+
+  defp missing_bits([a, l, e]) do
+    have = Baobab.all_seqnum(a, log_id: l) |> MapSet.new()
+    # We ask for each entry individually for now
+    # This will make more sense later
+    MapSet.new(1..e) |> MapSet.difference(have) |> Enum.map(fn e -> {a, l, e, e} end)
   end
 
   # Bad time complexity all up in here.
