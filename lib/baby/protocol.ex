@@ -155,10 +155,10 @@ defmodule Baby.Protocol do
   end
 
   defp missing_bits([a, l, e]) do
-    have = Baobab.all_seqnum(a, log_id: l) |> MapSet.new()
-    # We ask for each entry individually for now
-    # This will make more sense later
-    MapSet.new(1..e) |> MapSet.difference(have) |> Enum.map(fn e -> {a, l, e, e} end)
+    MapSet.new(1..e)
+    |> MapSet.difference(MapSet.new(Baobab.all_seqnum(a, log_id: l)))
+    |> Util.range_points()
+    |> Enum.map(fn {s, e} -> {a, l, s, e} end)
   end
 
   # Bad time complexity all up in here.
