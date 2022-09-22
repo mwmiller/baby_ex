@@ -50,6 +50,7 @@ defmodule Baby.Application do
           :ok = Application.put_env(:baobab, :spool_dir, path)
           path
       end
+      |> Path.expand()
 
     case File.exists?(baobab_spool) do
       true -> :ok
