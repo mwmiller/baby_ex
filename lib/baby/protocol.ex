@@ -227,7 +227,7 @@ defmodule Baby.Protocol do
   # Full chain from 1 to requested entry
   defp gather_our([[a, l, e] | rest], conn_info) do
     nci =
-      case Baobab.log_at(a, e, log_id: l, clump_id: conn_info.clump_d, format: :binary) do
+      case Baobab.log_at(a, e, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
         [] -> conn_info
         entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
