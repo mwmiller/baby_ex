@@ -62,15 +62,16 @@ defmodule Baby.Connection do
 
   def initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
+    clump_id = Keyword.get(opts, :clump_id, "Quagga")
     Process.send_after(self(), :outbox, @outrate, [])
     Process.send_after(self(), :inbox, @inrate, [])
 
     %{
       pid: self(),
-      have: stored_info_map(),
+      have: stored_info_map(clump_id),
       want: %{},
       shoots: [],
-      clump_id: Keyword.get(opts, :clump_id, "Quagga"),
+      clump_id: clump_id,
       socket: socket,
       transport: transport,
       our_pk: Baobab.identity_key(identity, :public),
@@ -219,7 +220,8 @@ defmodule Baby.Connection do
   defp close_connection(%{:transport => transport, :socket => socket}),
     do: transport.close(socket)
 
-  defp stored_info_map() do
-    Baobab.stored_info() |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
+  defp stored_info_map(clump_id) do
+    Baobab.stored_info(clump_id)
+    |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
   end
 end

@@ -148,15 +148,15 @@ defmodule Baby.Protocol do
         we_have == 0 -> [{a, l, e}]
         we_have < e -> [{a, l, we_have + 1, e}]
         # caught up, maybe fill in some missing bits this pass
-        true -> missing_bits([a, l, e])
+        true -> missing_bits([a, l, e], conn_info.clump_id)
       end
 
     want_their(rest, conn_info, acc ++ add)
   end
 
-  defp missing_bits([a, l, e]) do
+  defp missing_bits([a, l, e], clump_id) do
     MapSet.new(1..e)
-    |> MapSet.difference(MapSet.new(Baobab.all_seqnum(a, log_id: l)))
+    |> MapSet.difference(MapSet.new(Baobab.all_seqnum(a, log_id: l, clump_id: clump_id)))
     |> Util.range_points()
     |> Enum.map(fn {s, e} -> {a, l, s, e} end)
   end
@@ -216,7 +216,7 @@ defmodule Baby.Protocol do
   # Full log for author log_id
   defp gather_our([[a, l] | rest], conn_info) do
     nci =
-      case Baobab.full_log(a, log_id: l, format: :binary) do
+      case Baobab.full_log(a, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
         [] -> conn_info
         entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
@@ -227,7 +227,7 @@ defmodule Baby.Protocol do
   # Full chain from 1 to requested entry
   defp gather_our([[a, l, e] | rest], conn_info) do
     nci =
-      case Baobab.log_at(a, e, log_id: l, format: :binary) do
+      case Baobab.log_at(a, e, log_id: l, clump_id: conn_info.clump_d, format: :binary) do
         [] -> conn_info
         entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
@@ -238,7 +238,7 @@ defmodule Baby.Protocol do
   # Chain links from start to end
   defp gather_our([[a, l, s, e] | rest], conn_info) do
     nci =
-      case Baobab.log_range(a, {s, e}, log_id: l, format: :binary) do
+      case Baobab.log_range(a, {s, e}, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
         [] -> conn_info
         entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
       end
@@ -247,7 +247,7 @@ defmodule Baby.Protocol do
   end
 
   defp import_their(stuff, conn_info) do
-    stuff |> Baobab.import() |> import_summary(conn_info)
+    stuff |> Baobab.import(clump_id: conn_info.clump_id) |> import_summary(conn_info)
   end
 
   defp import_summary([], conn_info), do: conn_info

@@ -1,4 +1,6 @@
 defmodule Baby do
+  require Logger
+
   @moduledoc """
   Bushbaby Automated Bamboo Yields
   """
@@ -6,7 +8,7 @@ defmodule Baby do
   @doc """
   Connect to a remote hort and port
 
-  Keyword id_options may override the standard config:
+  Keyword id_options:
   - clump_id
   - identity
   """
@@ -19,12 +21,44 @@ defmodule Baby do
     do: connect(host_to_ip(host), port, id_options)
 
   def connect(host, port, id_options) do
+    # This mucks about with state it has no business touching
+    # If the Application is running, it's a problem.
+    opts = Keyword.delete(id_options, :spool_dir)
+    global_setup(opts)
+
     Baby.Connection.start_link(
       host: host,
       port: port,
-      identity: Keyword.get(id_options, :identity, Application.get_env(:baby, :identity)),
-      clump_id: Keyword.get(id_options, :clump_id, Application.get_env(:baby, :clump_id))
+      identity: Keyword.get(opts, :identity),
+      clump_id: Keyword.get(opts, :clump_id)
     )
+  end
+
+  @doc false
+  def global_setup(args) do
+    baobab_spool =
+      case Keyword.get(args, :spool_dir) do
+        nil -> Application.get_env(:baby, :spool_dir)
+        path -> path
+      end
+      |> Path.expand()
+
+    :ok = Application.put_env(:baobab, :spool_dir, baobab_spool)
+
+    # Allow for connections to clumps which are not globally configured
+    # This might get messy
+    clumps =
+      case Keyword.get(args, :clump_id) do
+        nil -> Application.get_env(:baby, :clumps, [])
+        kw -> [[id: kw]]
+      end
+
+    for clump <- clumps do
+      case Keyword.get(clump, :id) do
+        nil -> :ok
+        clump_id -> File.mkdir_p(Path.join([baobab_spool, clump_id]))
+      end
+    end
   end
 
   @doc false
