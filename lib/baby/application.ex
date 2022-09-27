@@ -48,8 +48,14 @@ defmodule Baby.Application do
       whoami = Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity))
 
       case Baobab.identity_key(whoami, :public) do
-        :error -> Baobab.create_identity(whoami)
-        _ -> :ok
+        :error ->
+          case Keyword.get(clump, :controlling_secret) do
+            nil -> Baobab.create_identity(whoami)
+            sk -> Baobab.create_identity(whoami, sk)
+          end
+
+        _ ->
+          :ok
       end
 
       clump_id = Keyword.get(clump, :id, Application.get_env(:baby, :clump_id))
