@@ -36,12 +36,14 @@ defmodule Baby do
 
   @doc false
   def global_setup(args) do
-    baobab_spool =
-      case Keyword.get(args, :spool_dir) do
-        nil -> Application.get_env(:baby, :spool_dir)
-        path -> path
+    spool_path =
+      case {Keyword.get(args, :spool_dir), Application.get_env(:baobab, :spool_dir)} do
+        {nil, nil} -> Application.get_env(:baby, :spool_dir)
+        {nil, path} -> path
+        {path, _} -> path
       end
-      |> Path.expand()
+
+    baobab_spool = Path.expand(spool_path)
 
     :ok = Application.put_env(:baobab, :spool_dir, baobab_spool)
 
