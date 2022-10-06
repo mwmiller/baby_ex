@@ -214,17 +214,15 @@ defmodule Baby.Protocol do
   end
 
   # Full log for author log_id
+  # This can get big so we will figure out how big and
+  # send it on
   defp gather_our([[a, l] | rest], conn_info) do
-    nci =
-      case Baobab.full_log(a, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
-        [] -> conn_info
-        entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
-      end
-
-    gather_our(rest, nci)
+    max = Baobab.max_seqnum(a, log_id: l, clump_id: conn_info.clump_id)
+    gather_our([[a, l, 1, max] | rest], conn_info)
   end
 
   # Full chain from 1 to requested entry
+  # Chain is logarithmic in sequence number
   defp gather_our([[a, l, e] | rest], conn_info) do
     nci =
       case Baobab.log_at(a, e, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
@@ -235,15 +233,26 @@ defmodule Baby.Protocol do
     gather_our(rest, nci)
   end
 
-  # Chain links from start to end
   defp gather_our([[a, l, s, e] | rest], conn_info) do
-    nci =
-      case Baobab.log_range(a, {s, e}, log_id: l, clump_id: conn_info.clump_id, format: :binary) do
-        [] -> conn_info
-        entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
-      end
+    # Break up large requests
+    case e - s > 10 do
+      true ->
+        m = div(s + e, 2)
+        gather_our([[a, l, s, m], [a, l, m, e]] ++ rest, conn_info)
 
-    gather_our(rest, nci)
+      false ->
+        nci =
+          case Baobab.log_range(a, {s, e},
+                 log_id: l,
+                 clump_id: conn_info.clump_id,
+                 format: :binary
+               ) do
+            [] -> conn_info
+            entries -> %{conn_info | shoots: [entries | conn_info.shoots]}
+          end
+
+        gather_our(rest, nci)
+    end
   end
 
   defp import_their(stuff, conn_info) do
