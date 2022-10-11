@@ -51,8 +51,14 @@ defmodule Baby do
     # This might get messy
     clumps =
       case Keyword.get(args, :clump_id) do
-        nil -> Application.get_env(:baby, :clumps, [])
-        kw -> [[id: kw]]
+        nil ->
+          case Keyword.get(args, :id) do
+            nil -> Application.get_env(:baby, :clumps, [])
+            _ -> [args]
+          end
+
+        kw ->
+          [[id: kw]]
       end
 
     for clump <- clumps do
@@ -61,6 +67,8 @@ defmodule Baby do
         clump_id -> File.mkdir_p(Path.join([baobab_spool, clump_id]))
       end
     end
+
+    clumps
   end
 
   @doc false

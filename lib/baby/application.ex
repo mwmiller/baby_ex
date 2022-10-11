@@ -7,10 +7,11 @@ defmodule Baby.Application do
 
   @impl true
   def start(_type, args \\ []) do
-    Baby.global_setup(args)
+    clumps = Baby.global_setup(args)
+    # Handle singular provided clump definition
 
     children =
-      clumps_setup()
+      clumps_setup(clumps)
       |> Enum.reduce([], fn {port, identity, clump_id, cryouts}, a ->
         # The configured identity must exist
         :ranch.start_listener(:baby, :ranch_tcp, [port: port], Baby.Connection,
@@ -43,25 +44,26 @@ defmodule Baby.Application do
     }
   end
 
-  defp clumps_setup() do
-    for clump <- Application.get_env(:baby, :clumps, []) do
-      whoami = Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity))
+  defp clumps_setup(clumps, acc \\ [])
+  defp clumps_setup([], acc), do: acc
 
-      case Baobab.identity_key(whoami, :public) do
-        :error ->
-          case Keyword.get(clump, :controlling_secret) do
-            nil -> Baobab.create_identity(whoami)
-            sk -> Baobab.create_identity(whoami, sk)
-          end
+  defp clumps_setup([clump | rest], acc) do
+    whoami = Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity))
 
-        _ ->
-          :ok
-      end
+    case Baobab.identity_key(whoami, :public) do
+      :error ->
+        case Keyword.get(clump, :controlling_secret) do
+          nil -> Baobab.create_identity(whoami)
+          sk -> Baobab.create_identity(whoami, sk)
+        end
 
-      clump_id = Keyword.get(clump, :id, Application.get_env(:baby, :clump_id))
-      port = Keyword.get(clump, :port, Application.get_env(:baby, :port, 8483))
-      cryouts = Keyword.get(clump, :cryouts, Application.get_env(:baby, :cryouts, []))
-      {port, whoami, clump_id, cryouts}
+      _ ->
+        :ok
     end
+
+    clump_id = Keyword.get(clump, :id, Application.get_env(:baby, :clump_id))
+    port = Keyword.get(clump, :port, Application.get_env(:baby, :port, 8483))
+    cryouts = Keyword.get(clump, :cryouts, Application.get_env(:baby, :cryouts, []))
+    clumps_setup(rest, [{port, whoami, clump_id, cryouts} | acc])
   end
 end
