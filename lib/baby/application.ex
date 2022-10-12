@@ -48,7 +48,8 @@ defmodule Baby.Application do
   defp clumps_setup([], acc), do: acc
 
   defp clumps_setup([clump | rest], acc) do
-    whoami = Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity))
+    whoami =
+      Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity, "default"))
 
     case Baobab.identity_key(whoami, :public) do
       :error ->
