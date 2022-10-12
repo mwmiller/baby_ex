@@ -58,7 +58,7 @@ defmodule Baby do
           end
 
         kw ->
-          [[id: kw]]
+          [Keyword.put(args, :id, kw)]
       end
 
     for clump <- clumps do
