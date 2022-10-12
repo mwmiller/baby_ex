@@ -238,7 +238,7 @@ defmodule Baby.Protocol do
     case e - s > 10 do
       true ->
         m = div(s + e, 2)
-        gather_our([[a, l, s, m], [a, l, m, e]] ++ rest, conn_info)
+        gather_our([[a, l, s, m], [a, l, m + 1, e]] ++ rest, conn_info)
 
       false ->
         nci =
