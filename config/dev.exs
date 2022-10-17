@@ -15,7 +15,7 @@ config :baby,
     [
       id: "Pitcairn",
       controlling_identity: "mwm",
-      port: 8483,
+      port: 8485,
       cryouts: [
         [host: "sally.nftease.online", port: 8485, period: {7, :minute}]
       ]

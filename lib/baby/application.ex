@@ -6,9 +6,23 @@ defmodule Baby.Application do
   use Application
 
   @impl true
-  def start(_type, args \\ []) do
-    clumps = Baby.global_setup(args)
-    # Handle singular provided clump definition
+  def start(type, args \\ [])
+  def start(type, []), do: start(type, Application.get_all_env(:baby))
+
+  def start(_type, args) do
+    spool_path = Keyword.get(args, :spool_dir)
+    baobab_spool = Path.expand(spool_path)
+    :ok = Application.put_env(:baobab, :spool_dir, baobab_spool)
+    # It is presumed that all available clumps are established here
+    # A later `Baby.connect` will not create missing clumps
+    clumps = Keyword.get(args, :clumps, [])
+
+    for clump <- clumps do
+      case Keyword.get(clump, :id) do
+        nil -> :ok
+        clump_id -> File.mkdir_p(Path.join([baobab_spool, clump_id]))
+      end
+    end
 
     children =
       clumps_setup(clumps)
@@ -28,8 +42,6 @@ defmodule Baby.Application do
         ]
       end)
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: Baby.Supervisor]
     Supervisor.start_link(children, opts)
   end
@@ -37,7 +49,7 @@ defmodule Baby.Application do
   def child_spec(opts) do
     %{
       id: __MODULE__,
-      start: {__MODULE__, :start, [nil, opts]},
+      start: {__MODULE__, :start, [:normal, opts]},
       type: :worker,
       restart: :permanent,
       shutdown: 500
@@ -48,8 +60,7 @@ defmodule Baby.Application do
   defp clumps_setup([], acc), do: acc
 
   defp clumps_setup([clump | rest], acc) do
-    whoami =
-      Keyword.get(clump, :controlling_identity, Application.get_env(:baby, :identity, "default"))
+    whoami = Keyword.get(clump, :controlling_identity, "default")
 
     case Baobab.identity_key(whoami, :public) do
       :error ->
@@ -62,9 +73,9 @@ defmodule Baby.Application do
         :ok
     end
 
-    clump_id = Keyword.get(clump, :id, Application.get_env(:baby, :clump_id))
-    port = Keyword.get(clump, :port, Application.get_env(:baby, :port, 8483))
-    cryouts = Keyword.get(clump, :cryouts, Application.get_env(:baby, :cryouts, []))
+    clump_id = Keyword.get(clump, :id)
+    port = Keyword.get(clump, :port, 8483)
+    cryouts = Keyword.get(clump, :cryouts, [])
     clumps_setup(rest, [{port, whoami, clump_id, cryouts} | acc])
   end
 end

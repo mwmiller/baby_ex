@@ -21,54 +21,12 @@ defmodule Baby do
     do: connect(host_to_ip(host), port, id_options)
 
   def connect(host, port, id_options) do
-    # This mucks about with state it has no business touching
-    # If the Application is running, it's a problem.
-    opts = Keyword.delete(id_options, :spool_dir)
-    global_setup(opts)
-
     Baby.Connection.start_link(
       host: host,
       port: port,
-      identity: Keyword.get(opts, :identity),
-      clump_id: Keyword.get(opts, :clump_id)
+      identity: Keyword.get(id_options, :identity),
+      clump_id: Keyword.get(id_options, :clump_id)
     )
-  end
-
-  @doc false
-  def global_setup(args) do
-    spool_path =
-      case {Keyword.get(args, :spool_dir), Application.get_env(:baobab, :spool_dir)} do
-        {nil, nil} -> Application.get_env(:baby, :spool_dir)
-        {nil, path} -> path
-        {path, _} -> path
-      end
-
-    baobab_spool = Path.expand(spool_path)
-
-    :ok = Application.put_env(:baobab, :spool_dir, baobab_spool)
-
-    # Allow for connections to clumps which are not globally configured
-    # This might get messy
-    clumps =
-      case Keyword.get(args, :clump_id) do
-        nil ->
-          case Keyword.get(args, :id) do
-            nil -> Application.get_env(:baby, :clumps, [])
-            _ -> [args]
-          end
-
-        kw ->
-          [Keyword.put(args, :id, kw)]
-      end
-
-    for clump <- clumps do
-      case Keyword.get(clump, :id) do
-        nil -> :ok
-        clump_id -> File.mkdir_p(Path.join([baobab_spool, clump_id]))
-      end
-    end
-
-    clumps
   end
 
   @doc false
