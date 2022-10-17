@@ -28,7 +28,11 @@ defmodule Baby.Application do
       clumps_setup(clumps)
       |> Enum.reduce([], fn {port, identity, clump_id, cryouts}, a ->
         # The configured identity must exist
-        :ranch.start_listener(:baby, :ranch_tcp, [port: port], Baby.Connection,
+        :ranch.start_listener(
+          String.to_atom("baby_" <> clump_id),
+          :ranch_tcp,
+          [port: port],
+          Baby.Connection,
           identity: identity,
           clump_id: clump_id
         )
