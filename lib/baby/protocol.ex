@@ -57,7 +57,6 @@ defmodule Baby.Protocol do
   def outbound(conn_info, :WANT) do
     conn_info.want
     |> Map.keys()
-    |> Enum.sort()
     |> encode_replication(conn_info, :WANT)
   end
 
