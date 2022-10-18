@@ -137,7 +137,11 @@ defmodule Baby.Protocol do
   end
 
   defp want_their([], conn_info, wants) do
-    Map.merge(conn_info, %{want: Map.merge(conn_info.want, reduce_wants(wants))})
+    # At some point I thought that the symmtery with WANT Map
+    # made sense.  I surely knew about MapSet.  I must rediscover the why
+    # here.  It will be easier to do rules-based set operations with MapSets
+    mapped_wants = Enum.reduce(wants, %{}, fn e, a -> Map.put(a, e, true) end)
+    Map.merge(conn_info, %{want: Map.merge(conn_info.want, mapped_wants)})
   end
 
   defp want_their([[a, l, e] | rest], conn_info, acc) do
@@ -159,42 +163,6 @@ defmodule Baby.Protocol do
     |> MapSet.difference(MapSet.new(Baobab.all_seqnum(a, log_id: l, clump_id: clump_id)))
     |> Util.range_points()
     |> Enum.map(fn {s, e} -> {a, l, s, e} end)
-  end
-
-  # Bad time complexity all up in here.
-  defp reduce_wants(wants), do: wants |> Enum.sort() |> Enum.uniq() |> reduce_wants([])
-  defp reduce_wants([], acc), do: acc |> Enum.reduce(%{}, fn e, a -> Map.put(a, e, true) end)
-
-  # Full logs for author means no need for partials
-  # or individual logs
-  defp reduce_wants([{a} | rest], acc) do
-    reduce_wants(
-      Enum.reject(rest, fn
-        {^a, _} -> true
-        {^a, _, _} -> true
-        {^a, _, _, _} -> true
-        _ -> false
-      end),
-      [{a} | acc]
-    )
-  end
-
-  # Full log means no need for partials
-  defp reduce_wants([{a, l} | rest], acc) do
-    reduce_wants(
-      Enum.reject(rest, fn
-        {^a, ^l, _} -> true
-        {^a, ^l, _, _} -> true
-        _ -> false
-      end),
-      [{a, l} | acc]
-    )
-  end
-
-  # We're allow to want two different partial chains
-  # Since we've sorted this we can move everything at once
-  defp reduce_wants(partials, acc) do
-    reduce_wants([], partials ++ acc)
   end
 
   defp gather_our([], conn_info, todo),
