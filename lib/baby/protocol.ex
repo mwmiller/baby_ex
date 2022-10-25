@@ -16,7 +16,7 @@ defmodule Baby.Protocol do
   def definition(), do: @protodef
 
   def outbound(conn_info, :HELLO) do
-    {esk, epk} = Kcl.generate_key_pair(:encrypt)
+    %{secret: esk, public: epk} = :enacl.box_keypair()
     type = :HELLO
 
     (conn_info.our_pk <> epk <> Kcl.auth(epk, conn_info.clump_id))
@@ -27,15 +27,15 @@ defmodule Baby.Protocol do
 
   def outbound(conn_info, :AUTH) do
     send_key =
-      Curve25519.derive_shared_secret(
+      :enacl.curve25519_scalarmult(
         conn_info.our_esk,
-        Kcl.sign_to_encrypt(conn_info.their_pk, :public)
+        :enacl.crypto_sign_ed25519_public_to_curve25519(conn_info.their_pk)
       )
       |> Blake2.hash2b(32)
 
     recv_key =
-      Curve25519.derive_shared_secret(
-        Kcl.sign_to_encrypt(conn_info.our_sk, :secret),
+      :enacl.curve25519_scalarmult(
+        :enacl.crypto_sign_ed25519_secret_to_curve25519(conn_info.our_sk <> conn_info.our_pk),
         conn_info.their_epk
       )
       |> Blake2.hash2b(32)
@@ -43,7 +43,7 @@ defmodule Baby.Protocol do
     nci = Map.merge(conn_info, %{:recv_key => recv_key, :send_key => send_key})
 
     (conn_info.clump_id <> recv_key)
-    |> Kcl.sign(conn_info.our_sk)
+    |> :enacl.sign_detached(conn_info.our_sk <> conn_info.our_pk)
     |> pack_and_ship_nonce_box(nci, :AUTH)
   end
 
@@ -120,7 +120,7 @@ defmodule Baby.Protocol do
 
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
-         true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
+         true <- :enacl.sign_verify_detached(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
       Util.connection_log(conn_info, :both, "connected", :info)
 
       Map.drop(nci, [
@@ -260,13 +260,13 @@ defmodule Baby.Protocol do
         :replay
 
       false ->
-        case Kcl.secretunbox(box, nonce, conn_info.recv_key) do
-          :error ->
+        case :enacl.secretbox_open(box, nonce, conn_info.recv_key) do
+          {:ok, msg} ->
+            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
+
+          _ ->
             Util.connection_log(conn_info, :in, "unboxing error", :error)
             :unbox
-
-          msg ->
-            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
         end
     end
   end
@@ -280,7 +280,7 @@ defmodule Baby.Protocol do
         wt -> wt
       end
 
-    (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
+    (nonce <> :enacl.secretbox(msg, nonce, conn_info.send_key))
     |> Stlv.encode(@proto_msg[type])
     |> enqueue_packet(conn_info, st)
   end

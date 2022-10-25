@@ -27,6 +27,7 @@ defmodule Baby.MixProject do
       {:yamfhash, "~> 1.0"},
       # Third-party
       {:cbor, "~> 1.0"},
+      {:enacl, "~> 1.2"},
       {:ranch, "~> 1.8"}
     ]
   end
