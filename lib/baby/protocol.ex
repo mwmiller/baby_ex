@@ -222,7 +222,9 @@ defmodule Baby.Protocol do
   defp pull_log_data(_, _), do: []
 
   defp import_their(stuff, conn_info) do
-    stuff |> Baobab.import(clump_id: conn_info.clump_id) |> import_summary(conn_info)
+    stuff
+    |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id)
+    |> import_summary(conn_info)
   end
 
   defp import_summary([], conn_info), do: conn_info
