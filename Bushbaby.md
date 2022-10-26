@@ -66,7 +66,7 @@ The "HELLO" message is the introduction between peers. It consists of an STLV-en
 
 	- Long term identity public key
 	- Selected ephemeral public key for this connection
-	- HMAC of node's ephemeral public key with a key of the clump identifier in which this peer is participating
+	- HMAC of the clump identitifier in which this peer is participating with a key of this node's ephemeral public key
 
 A received "HELLO" packet allows the peer to confirm a shared clump identifier and construct the necessary values for authentication.
 
