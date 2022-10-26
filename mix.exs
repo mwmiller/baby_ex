@@ -21,7 +21,6 @@ defmodule Baby.MixProject do
   defp deps do
     [
       {:baobab, "~> 0.12.0"},
-      {:kcl, "~> 1.0"},
       {:stlv, "~> 1.0"},
       {:varu64, "~> 1.0"},
       {:yamfhash, "~> 1.0"},

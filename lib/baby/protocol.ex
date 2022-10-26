@@ -19,7 +19,7 @@ defmodule Baby.Protocol do
     %{secret: esk, public: epk} = :enacl.box_keypair()
     type = :HELLO
 
-    (conn_info.our_pk <> epk <> Kcl.auth(epk, conn_info.clump_id))
+    (conn_info.our_pk <> epk <> :enacl.auth(conn_info.clump_id, epk))
     |> Stlv.encode(@proto_msg[type])
     |> enqueue_packet(conn_info, type)
     |> Map.merge(%{our_epk: epk, our_esk: esk})
@@ -103,7 +103,7 @@ defmodule Baby.Protocol do
     with {1, hello} <- data,
          <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
            hello,
-         true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
+         true <- :enacl.auth_verify(hmac, conn_info.clump_id, their_epk) do
       peer = their_pk |> Baobab.b62identity()
       short_peer = "~" <> (peer |> String.slice(0..6))
 
