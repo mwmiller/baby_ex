@@ -66,15 +66,9 @@ defmodule Baby.Application do
   defp clumps_setup([clump | rest], acc) do
     whoami = Keyword.get(clump, :controlling_identity, "default")
 
-    case Baobab.identity_key(whoami, :public) do
-      :error ->
-        case Keyword.get(clump, :controlling_secret) do
-          nil -> Baobab.create_identity(whoami)
-          sk -> Baobab.create_identity(whoami, sk)
-        end
-
-      _ ->
-        :ok
+    case Baobab.Identity.key(whoami, :public) do
+      :error -> Baobab.Identity.create(whoami, Keyword.get(clump, :controlling_secret))
+      _ -> :ok
     end
 
     clump_id = Keyword.get(clump, :id)

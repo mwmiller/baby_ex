@@ -104,7 +104,7 @@ defmodule Baby.Protocol do
          <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
            hello,
          true <- :enacl.auth_verify(hmac, conn_info.clump_id, their_epk) do
-      peer = their_pk |> Baobab.b62identity()
+      peer = their_pk |> Baobab.Identity.as_base62()
       short_peer = "~" <> (peer |> String.slice(0..6))
 
       Map.merge(conn_info, %{
@@ -237,7 +237,7 @@ defmodule Baby.Protocol do
   # They have to be provided in order or the chain won't verify
   # There are extra updates here, but maybe there's an error mixed in
   defp import_summary([%Baobab.Entry{author: author, log_id: l, seqnum: e} | rest], conn_info) do
-    a = author |> Baobab.b62identity()
+    a = author |> Baobab.Identity.as_base62()
 
     import_summary(rest, %{
       conn_info
