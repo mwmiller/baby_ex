@@ -3,8 +3,8 @@ defmodule Baby.Connection do
   @behaviour :ranch_protocol
   alias Baby.{Protocol, Util}
 
-  @inrate 101
-  @outrate 103
+  @inrate 59
+  @outrate 61
   @idle_timeout {{:timeout, :idle}, 21017, :nothing_happening}
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
