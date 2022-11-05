@@ -1,4 +1,5 @@
 defmodule Baby.Protocol do
+  alias Baobab.ClumpMeta
   alias Baby.Util
 
   @protodef %{
@@ -120,7 +121,8 @@ defmodule Baby.Protocol do
 
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
-         true <- :enacl.sign_verify_detached(sig, nci.clump_id <> nci.send_key, nci.their_pk) do
+         true <- :enacl.sign_verify_detached(sig, nci.clump_id <> nci.send_key, nci.their_pk),
+         false <- ClumpMeta.blocked_author?(nci.their_pk, conn_info.clump_id) do
       Util.connection_log(conn_info, :both, "connected", :info)
 
       Map.drop(nci, [
@@ -145,14 +147,22 @@ defmodule Baby.Protocol do
   end
 
   defp want_their([[a, l, e] | rest], conn_info, acc) do
-    we_have = Map.get(conn_info.have, {a, l}, 0)
+    clump_id = conn_info.clump_id
 
     add =
-      cond do
-        we_have == 0 -> [{a, l, e}]
-        we_have < e -> [{a, l, we_have + 1, e}]
-        # caught up, maybe fill in some missing bits this pass
-        true -> missing_bits([a, l, e], conn_info.clump_id)
+      case ClumpMeta.blocked_author?(a, clump_id) do
+        true ->
+          []
+
+        false ->
+          we_have = Map.get(conn_info.have, {a, l}, 0)
+
+          cond do
+            we_have == 0 -> [{a, l, e}]
+            we_have < e -> [{a, l, we_have + 1, e}]
+            # caught up, maybe fill in some missing bits this pass
+            true -> missing_bits([a, l, e], conn_info.clump_id)
+          end
       end
 
     want_their(rest, conn_info, acc ++ add)
