@@ -74,6 +74,7 @@ defmodule Baby.Protocol do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       decoded
+      |> ClumpMeta.filter_blocked(new_conn.clump_id)
       |> want_their(new_conn, [])
       |> outbound(:WANT)
     else
@@ -122,7 +123,7 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
          true <- :enacl.sign_verify_detached(sig, nci.clump_id <> nci.send_key, nci.their_pk),
-         false <- ClumpMeta.blocked_author?(nci.their_pk, conn_info.clump_id) do
+         false <- ClumpMeta.blocked?(nci.their_pk, conn_info.clump_id) do
       Util.connection_log(conn_info, :both, "connected", :info)
 
       Map.drop(nci, [
@@ -147,22 +148,14 @@ defmodule Baby.Protocol do
   end
 
   defp want_their([[a, l, e] | rest], conn_info, acc) do
-    clump_id = conn_info.clump_id
+    we_have = Map.get(conn_info.have, {a, l}, 0)
 
     add =
-      case ClumpMeta.blocked_author?(a, clump_id) do
-        true ->
-          []
-
-        false ->
-          we_have = Map.get(conn_info.have, {a, l}, 0)
-
-          cond do
-            we_have == 0 -> [{a, l, e}]
-            we_have < e -> [{a, l, we_have + 1, e}]
-            # caught up, maybe fill in some missing bits this pass
-            true -> missing_bits([a, l, e], conn_info.clump_id)
-          end
+      cond do
+        we_have == 0 -> [{a, l, e}]
+        we_have < e -> [{a, l, we_have + 1, e}]
+        # caught up, maybe fill in some missing bits this pass
+        true -> missing_bits([a, l, e], conn_info.clump_id)
       end
 
     want_their(rest, conn_info, acc ++ add)
