@@ -2,6 +2,10 @@ defmodule Baby.Protocol do
   alias Baobab.ClumpMeta
   alias Baby.Util
 
+  @moduledoc """
+  Protocol implementation
+  """
+
   @protodef %{
     :HELLO => %{type: 1, instate: :hello, outstate: :auth},
     :AUTH => %{type: 2, instate: :auth, outstate: :replicate},
@@ -13,8 +17,20 @@ defmodule Baby.Protocol do
              |> Map.to_list()
              |> Enum.reduce(%{}, fn {k, %{type: n}}, a -> Map.merge(a, %{k => n, n => k}) end)
 
+  @doc """
+  A dual-way map between message types and semantic protocol atoms
+  """
   def msglookup(val), do: Map.get(@proto_msg, val)
+
+  @doc """
+  A map of the protocol definitions
+  """
   def definition(), do: @protodef
+
+  @doc """
+  Craft and enqueue an outbound messagei or the provided type from the current connection state
+  """
+  def outbound(conn_info, message_type)
 
   def outbound(conn_info, :HELLO) do
     %{secret: esk, public: epk} = :enacl.box_keypair()
@@ -69,6 +85,11 @@ defmodule Baby.Protocol do
     |> encode_replication(conn_info, :BAMB)
     |> Map.merge(%{shoots: rest})
   end
+
+  @doc """
+  Handle inbound data of the provided message type based on the supplied connection state
+  """
+  def inbound(data, conn_info, message_type)
 
   def inbound(data, conn_info, :HAVE) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),

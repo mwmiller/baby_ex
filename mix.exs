@@ -6,7 +6,11 @@ defmodule Baby.MixProject do
       app: :baby,
       version: "0.6.0",
       elixir: "~> 1.13",
+      name: "Baby",
+      source_url: "https://github.com/mwmiller/baby_ex",
       start_permanent: Mix.env() == :prod,
+      description: description(),
+      package: package(),
       deps: deps()
     ]
   end
@@ -23,11 +27,28 @@ defmodule Baby.MixProject do
       {:baobab, "~> 0.16.0"},
       {:stlv, "~> 1.0"},
       {:varu64, "~> 1.0"},
-      {:yamfhash, "~> 1.0"},
       # Third-party
       {:cbor, "~> 1.0"},
       {:enacl, "~> 1.2"},
-      {:ranch, "~> 1.8"}
+      {:ranch, "~> 1.8"},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
+    ]
+  end
+
+  defp description do
+    """
+    Bushbaby Automated Bamboo Yields
+    """
+  end
+
+  defp package do
+    [
+      files: ["lib", "mix.exs", "README*", "LICENSE*"],
+      maintainers: ["Matt Miller"],
+      licenses: ["MIT"],
+      links: %{
+        "GitHub" => "https://github.com/mwmiller/baby_ex"
+      }
     ]
   end
 end

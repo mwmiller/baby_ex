@@ -2,6 +2,11 @@ defmodule Baby.Monitor do
   use GenServer
   require Logger
 
+  @moduledoc """
+  Cutely and unhelpfully named.
+  A GenServer managing periodic `cryout` activity
+  """
+
   def start_link(opts) when is_map(opts) do
     children = [
       {DynamicSupervisor, strategy: :one_for_one, name: Baby.Monitor.DynamicSupervisor}

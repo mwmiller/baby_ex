@@ -3,12 +3,25 @@ defmodule Baby do
 
   @moduledoc """
   Bushbaby Automated Bamboo Yields
+
+  Reference `bushbaby` protocol node
+
+  ### Configuration
+  `spool_dir`: The path to the `Baobab` bamboo store spool
+  `clumps`: List of per-clump keyword configurations
+      - `id`: a binary `clump_id`
+      - `controlling_identity`: a `Baobab.Identity` by which this peer will be known
+      - `port`: an integer port to which to bind
+      - `cryouts`: list of keyword configurations for periodic peer replication
+          - `host`: peer host address
+          - `port`: peer port
+          - `period`: `{integer quantity, atom unit}` ({17, :minute})
   """
 
   @doc """
   Connect to a remote hort and port
 
-  Keyword id_options:
+  Keyword id_options relative to the configured `Baobab` store
   - clump_id
   - identity
   """

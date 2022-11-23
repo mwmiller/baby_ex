@@ -3,6 +3,10 @@ defmodule Baby.Connection do
   @behaviour :ranch_protocol
   alias Baby.{Protocol, Util}
 
+  @moduledoc """
+  Statee machine connection handler
+  """
+
   @inrate 59
   @outrate 61
   @idle_timeout {{:timeout, :idle}, 21017, :nothing_happening}
@@ -60,7 +64,7 @@ defmodule Baby.Connection do
   def terminate(_, conn_info, _data) when is_map(conn_info), do: close_connection(conn_info)
   def terminate(_, _, _), do: :ok
 
-  def initial_conn_info(opts, socket, transport) do
+  defp initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
     Process.send_after(self(), :outbox, @outrate, [])
@@ -206,8 +210,8 @@ defmodule Baby.Connection do
     {:stop, :normal}
   end
 
-  def send_packet(packet, %{:transport => nil, :socket => sock}), do: :gen_tcp.send(sock, packet)
-  def send_packet(packet, %{:transport => trans, :socket => sock}), do: trans.send(sock, packet)
+  defp send_packet(packet, %{:transport => nil, :socket => sock}), do: :gen_tcp.send(sock, packet)
+  defp send_packet(packet, %{:transport => trans, :socket => sock}), do: trans.send(sock, packet)
 
   defp active_once(%{:transport => nil, :socket => socket}),
     do: :inet.setopts(socket, active: :once)

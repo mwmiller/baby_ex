@@ -1,10 +1,20 @@
 defmodule Baby.Util do
   require Logger
 
+  @moduledoc """
+  Utility functions for use across the codebase
+  """
+
   defp arrow(:in), do: "⇒"
   defp arrow(:out), do: "⇐"
   defp arrow(:both), do: "⇔"
 
+  @doc """
+  Standardised connection activity logging for the supplied state
+    `dir`: `:in`, `:out`, `:both`
+    `msg`: a protocol message type atom
+    `level`: log lvel atom (default: `:debug`)
+  """
   def connection_log(conn_info, dir, msg, level \\ :debug)
 
   def connection_log(ci, d, msg, level) when is_atom(msg),

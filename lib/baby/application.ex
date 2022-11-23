@@ -1,7 +1,20 @@
 defmodule Baby.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
-  @moduledoc false
+  @moduledoc """
+  By design the `Baby` server does not start automatically.
+
+  To use the `:baby` configuration, it may be started via:
+
+  ```
+  Baby.Application.start(:normal) 
+  ```
+
+  One may also craft a custom configuration to be supplied at runtime:
+
+  ```
+  config = [spool_dir: "~/.special_bamboo"]
+  Baby.Application.start(:normal, config)
+  ```
+  """
 
   use Application
 
@@ -50,6 +63,9 @@ defmodule Baby.Application do
     Supervisor.start_link(children, opts)
   end
 
+  @doc """
+  A usable child specification for starting under a supervision tree
+  """
   def child_spec(opts) do
     %{
       id: __MODULE__,
