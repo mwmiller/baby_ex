@@ -147,7 +147,10 @@ defmodule Baby.Protocol do
          false <- ClumpMeta.blocked?(nci.their_pk, conn_info.clump_id) do
       Util.connection_log(conn_info, :both, "connected", :info)
 
-      Map.drop(nci, [
+      us = Enum.map([nci.our_pk, nci.their_pk], fn k -> Baobab.Identity.as_base62(k) end)
+
+      nci
+      |> Map.drop([
         :our_pk,
         :our_sk,
         :our_esk,
@@ -155,6 +158,7 @@ defmodule Baby.Protocol do
         :their_pk,
         :their_epk
       ])
+      |> Map.merge(%{us_fun: fn a -> a in us end})
     else
       _ -> :error
     end
@@ -165,6 +169,7 @@ defmodule Baby.Protocol do
     # made sense.  I surely knew about MapSet.  I must rediscover the why
     # here.  It will be easier to do rules-based set operations with MapSets
     mapped_wants = Enum.reduce(wants, %{}, fn e, a -> Map.put(a, e, true) end)
+
     Map.merge(conn_info, %{want: Map.merge(conn_info.want, mapped_wants)})
   end
 
@@ -173,10 +178,19 @@ defmodule Baby.Protocol do
 
     add =
       cond do
-        we_have == 0 -> [{a, l, e}]
-        we_have < e -> [{a, l, we_have + 1, e}]
+        # If we've lost our own logs, try to get everything
+        we_have == 0 ->
+          case conn_info.us_fun.(a) do
+            false -> [{a, l, e}]
+            true -> [{a, l}]
+          end
+
+        we_have < e ->
+          [{a, l, we_have + 1, e}]
+
         # caught up, maybe fill in some missing bits this pass
-        true -> missing_bits([a, l, e], conn_info.clump_id)
+        true ->
+          missing_bits([a, l, e], conn_info.clump_id)
       end
 
     want_their(rest, conn_info, acc ++ add)
@@ -220,8 +234,8 @@ defmodule Baby.Protocol do
     do: gather_our(rest, conn_info, [[a, l, e] | todo])
 
   defp gather_our([[a, l, s, e] | rest], conn_info, todo) do
-    # Break up large requests
-    case e - s >= 7 do
+    # Break up large requests which are not full logs
+    case e - s >= 11 do
       true ->
         m = div(s + e, 2)
         gather_our([[a, l, s, m], [a, l, m + 1, e]] ++ rest, conn_info, todo)
@@ -230,6 +244,9 @@ defmodule Baby.Protocol do
         gather_our(rest, conn_info, [[a, l, s, e] | todo])
     end
   end
+
+  defp pull_log_data([a, l], conn_info),
+    do: Baobab.full_log(a, log_id: l, clump_id: conn_info.clump_id, format: :binary)
 
   defp pull_log_data([a, l, e], conn_info),
     do: Baobab.log_at(a, e, log_id: l, clump_id: conn_info.clump_id, format: :binary)
@@ -272,6 +289,9 @@ defmodule Baby.Protocol do
 
   # Do not bother sending empty arrays
   defp encode_replication([], conn_info, _), do: conn_info
+  # Skip Baobab error conditions
+  defp encode_replication({:error, _}, conn_info, _), do: conn_info
+  defp encode_replication(:error, conn_info, _), do: conn_info
 
   defp encode_replication(msg, conn_info, type) do
     msg
