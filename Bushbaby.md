@@ -34,7 +34,7 @@ This document may describe behavior exhibited by the reference implementation.  
 ### Nonce boxes
 
 The majority of communications (everything except "HELLO") are sent in so-called "nonce boxes".
-These are simply a concatenation of a 24-byte nonce and NaCl secret box which uses that nonce. These are wrapped via STLV with the message type (`2` or `3`) as appropriate.
+These are simply a concatenation of a 24-byte nonce and NaCl secret box which uses that nonce. These are wrapped via STLV with the appropriate integer message type.
 
 The process is fairly straightforward, once "send" and "receive" keys are established in the "AUTH" state.
 
@@ -70,6 +70,21 @@ The "HELLO" message is the introduction between peers. It consists of an STLV-en
 
 A received "HELLO" packet allows the peer to confirm a shared clump identifier and construct the necessary values for authentication.
 
+##### Packet construction
+
+- Generate an ephemeral Curve25519 key pair for this session: `our_epk`, `our_esk`
+- Compute an HMAC (`hmac`) with the `clump_id` as message and `their_epk` as the key
+- Concatenate the long-term public Ed25519 key (`our_pk`), `their_epk`, `hmac` into the `hello_message`
+- Wrap the `hello_message` into an STLV type `1` message
+
+##### Packet interpretation
+
+- Unwrap the type `1` STLV message
+- Extract the first 32 bytes as the peer's longterm Ed25519 key (`their_pk`)
+- Extract the next 32 bytes at the peer's ephemeral Curve25519 key (`their_epk`)
+- Extract the final 32 bytes as the handshake HMAC `hmac`
+- Verify the `hmac` with the `clump_id` in which we are participating as the message and `their_epk` as the key
+
 #### Type 2 message -- "AUTH"
 
 The "AUTH" message is used to establish a trusted channel between peers which have exchanged "HELLO" messages.
@@ -90,6 +105,27 @@ The clump identifier is concatenated with the receive key and signed with the no
 
 A received "AUTH" packet allows the peer to confirm agreement on identities and keys to be used throughout the replication connection.
 
+##### Packet construction
+
+- Compute the `send_key` via
+	- scalarmult of `our_esk` with the Curve25519 equivalent of `their_pk`
+	- Hash to 32 bytes with Blake2b
+- Compute the `recv_key` via
+    - scalarmult of the Curve25519 equivalent of `our_pk` with `their_epk`
+	- Hash to 32 bytes with Blake2b
+- Prepare `auth_msg` as the concatenation of the `clump_id` and `recv_key`
+- Compute a detached signature for `auth_msg` with  long-term Ed25519 secret key  (`our_sk`)
+- Build an STLV type `2` nonce box as above.
+
+##### Packet interpretation
+
+- Unwrap the type `2` STLV message
+- Unpack the nonce box as above
+- Verify the signature
+	- Packet data is the signature	
+	- Message to verify is the concatenation of `clump_id` and `send_key`
+	- Signing key is `their_pk`	
+
 ### Replication 
 
 Once the handshake is complete, peers enter the replication state. The replication messages are used to exchange metadata about logs and the logs themselves.  Each message is an independent "nonce box" with a CBOR-encoded array of data.  While implementations may use internal state for decision-making with regard to traffic, there is no requirement to maintain any state with respect to replication messages.
@@ -102,6 +138,18 @@ This message type indicates the logs which the node has stored locally and is wi
 	- integer log id
 	- integer maximum available sequence number
 
+###### Packet creation
+
+- Prepare a list of stored data as an array of arrays `have_list`:
+	- [[base62-encoded source identity, integer `log_id`, integer maximum `seq`],...]
+- CBOR-encode `have_list`
+- Build an STLV type `5` nonce box as above
+
+##### Packet interpretation
+
+- Unwrap the type 5 STLV message
+- Decode the CBOR contents, ensuring there is no error or extraneous data
+
 #### Type 6 -- "WANT"
 
 This message type indicates the logs which the node is interested in acquiring.  Its data portion should be an array of arrays.  The arrays should consist of a base62-encoded source identity and integers for the other values.
@@ -111,11 +159,36 @@ Each sub-array should be of length 1-4, indicating:
 	- [source identity] - Full logs for the source identity
 	- [source identity, log id] - Full log for source identity's log id
 	- [source identity, log id, n] - The certificate pool from sequence number `1` to `n`
-	- [source identity, log id, from, to] - Certificate pool entries spanning `from` - `to`
+	- [source identity, log id, from, to] - All entries spanning `from` - `to`
+
+##### Packet creation
+
+- Determine an array of log specification arrays to request `want_list`:
+	- [[base62-encoded source identity], [base62-encoded source identity, `log_id`],  [base62-encoded source identity, `log_id`, seq],  [base62-encoded source identity, `log_id`, `start_seq`, `end_seq`],...]
+- CBOR-encode `want_list`
+- Build an STLV type `6` nonce box as above
+
+##### Packet interpretation
+
+- Unwrap the type `6` nonce box
+- Decode the CBOR contents, ensuring there is no error or extraneous data
 
 #### Type 8 -- "BAMBOO"
 
 This message type contains an array of Bamboo objects.  Each array element should be entry data concatenated with the payload.  There is no specific requirement on how to order these arrays or group them into protocol packets.  It is, however, worth noting that each element will require peer verification.  Providing them in individual "chain groups" ordered from lowest to highest sequence number facilitates the easiest management.  Therefore this makes it the most likely that the peer will accept and propagate the log.
+
+##### Packet creation
+
+- Obtain an array of the binary form of log data `bamboo_data`:
+	- Be sure it is ordered from low-to-high `seq` to ensure verifiability
+	- Binary form is a straight concatenation of the log entry header and body content
+- CBOR-encode the `bamboo_data` array
+- Build an STLV type `8` nonce box as above
+
+##### Packet interpretation
+
+- Unwrap the type `8` nonce box
+- Decode the CBOR contents, ensuring there is no error or extraneous data 
 
 ### Peering Notes
 
@@ -128,7 +201,7 @@ It is also likely advantageous for a node to maintain information about the beha
 - A node may choose not to share its HAVE list and merely "push" logs it wishes to "promote."
 - A node may choose to ignore its peer's WANT list and aggressively "hoard" logs it sees announced
 
-Some of this may be seen as anti-social behavior, but that is for the node operator's discretion, not a protocol level concern.
+Some of this may be seen as anti-social behavior, but that is for the node operator's discretion, not a protocol-level concern.
 
 Since Bamboo packets may contain any sort of data in any kind of order, peers may well wish to curate which items they choose to persist and propagate.  No node is under any obligation to store-and-forward any particular data.
 
