@@ -73,8 +73,8 @@ A received "HELLO" packet allows the peer to confirm a shared clump identifier a
 ##### Packet construction
 
 - Generate an ephemeral Curve25519 key pair for this session: `our_epk`, `our_esk`
-- Compute an HMAC (`hmac`) with the `clump_id` as message and `their_epk` as the key
-- Concatenate the long-term public Ed25519 key (`our_pk`), `their_epk`, `hmac` into the `hello_message`
+- Compute an HMAC (`hmac`) with the `clump_id` as message and `our_epk` as the key
+- Concatenate the long-term public Ed25519 key (`our_pk`), `our_epk`, `hmac` into the `hello_message`
 - Wrap the `hello_message` into an STLV type `1` message
 
 ##### Packet interpretation
