@@ -57,4 +57,17 @@ defmodule Baby do
         end
     end
   end
+
+  @doc """
+  Convert a `{count, unit}` period into a number of milliseconds
+  """
+  @spec period_to_ms({integer, atom}) :: integer | :error
+  def period_to_ms(period)
+  def period_to_ms({amt, :millisecond}), do: amt
+  def period_to_ms({amt, :second}), do: period_to_ms({amt * 1000, :millisecond})
+  def period_to_ms({amt, :minute}), do: period_to_ms({amt * 60, :second})
+  def period_to_ms({amt, :hour}), do: period_to_ms({amt * 60, :minute})
+  def period_to_ms({amt, :day}), do: period_to_ms({amt * 24, :hour})
+  def period_to_ms({amt, :week}), do: period_to_ms({amt * 7, :day})
+  def period_to_ms(_), do: :error
 end

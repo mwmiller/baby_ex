@@ -42,16 +42,9 @@ defmodule Baby.Monitor do
     )
 
     # We get inherent jitter via the connection spin up
-    next_start = to_ms(Keyword.get(opts, :period, {17, :minute}))
+    next_start = Baby.period_to_ms(Keyword.get(opts, :period, {17, :minute}))
 
     Process.send_after(self(), {:cryout, opts}, next_start, [])
     {:noreply, state}
   end
-
-  defp to_ms({amt, :millisecond}), do: amt
-  defp to_ms({amt, :second}), do: to_ms({amt * 1000, :millisecond})
-  defp to_ms({amt, :minute}), do: to_ms({amt * 60, :second})
-  defp to_ms({amt, :hour}), do: to_ms({amt * 60, :minute})
-  defp to_ms({amt, :day}), do: to_ms({amt * 24, :hour})
-  defp to_ms({amt, :week}), do: to_ms({amt * 7, :day})
 end
