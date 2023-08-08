@@ -71,9 +71,11 @@ defmodule Baby.Protocol do
     |> encode_replication(conn_info, :HAVE)
   end
 
-  def outbound(conn_info, :WANT) do
+  def outbound(%{us_fun: uf} = conn_info, :WANT) do
     conn_info.want
     |> Map.keys()
+    |> Enum.split_with(fn i -> uf.(i) end)
+    |> then(fn {hi, lo} -> hi ++ lo end)
     |> encode_replication(conn_info, :WANT)
   end
 
@@ -158,7 +160,7 @@ defmodule Baby.Protocol do
         :their_pk,
         :their_epk
       ])
-      |> Map.merge(%{us_fun: fn a -> a in us end})
+      |> Map.merge(%{us_fun: fn index -> elem(index, 0) in us end})
     else
       _ -> :error
     end
@@ -180,7 +182,7 @@ defmodule Baby.Protocol do
       cond do
         # If we've lost our own logs, try to get everything
         we_have == 0 ->
-          case conn_info.us_fun.(a) do
+          case conn_info.us_fun.({a}) do
             false -> [{a, l, e}]
             true -> [{a, l}]
           end
