@@ -24,10 +24,6 @@ defmodule Baby.Util do
     Logger.log(level, Enum.join([tilde_peer(conn_info), arrow(dir), msg], " "))
   end
 
-  def reduce_rem_messages(%{rem_messages: rm} = conn_info) do
-    %{conn_info | rem_messages: Enum.max([0, rm - 1])}
-  end
-
   defp tilde_peer(conn_info) do
     case Map.fetch(conn_info, :short_peer) do
       {:ok, them} -> them

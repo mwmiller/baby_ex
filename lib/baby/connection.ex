@@ -10,11 +10,6 @@ defmodule Baby.Connection do
   @inrate 59
   @outrate 61
   @idle_timeout {{:timeout, :idle}, 59957, :nothing_happening}
-  # This will become configurable when I have more time
-  # It represents how many protocol message to exchange per connection
-  # This is a hacky fix for a memory issue on initial sync
-  # Will fix as part of sync strategy
-  @max_connection_messages 64
 
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
@@ -78,7 +73,6 @@ defmodule Baby.Connection do
 
     %{
       pid: self(),
-      rem_messages: @max_connection_messages,
       shoots: [],
       clump_id: clump_id,
       socket: socket,
@@ -108,8 +102,6 @@ defmodule Baby.Connection do
     {:keep_state, conn_info, [@idle_timeout]}
   end
 
-  # We only exchange max_sync messages per connection
-  def handle_event(:info, _, _, %{rem_messages: 0} = conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
 
@@ -124,7 +116,7 @@ defmodule Baby.Connection do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, Util.reduce_rem_messages(Baby.Protocol.outbound(conn_info, :BAMB)), []}
+    {:keep_state, Protocol.outbound(conn_info, :BAMB), []}
   end
 
   def handle_event(:info, :outbox, _, %{outbox: [], shoots: []} = conn_info) do
@@ -133,15 +125,15 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
-    {:keep_state, Util.reduce_rem_messages(Protocol.outbound(conn_info, :HELLO)), []}
+    {:keep_state, Protocol.outbound(conn_info, :HELLO), []}
   end
 
   def handle_event(:enter, :hello, :auth, conn_info) do
-    {:keep_state, Util.reduce_rem_messages(Protocol.outbound(conn_info, :AUTH)), []}
+    {:keep_state, Protocol.outbound(conn_info, :AUTH), []}
   end
 
   def handle_event(:enter, :auth, :replicate, conn_info) do
-    {:keep_state, Util.reduce_rem_messages(Protocol.outbound(conn_info, :HAVE)), []}
+    {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
   # Write out the proto handlers
@@ -153,7 +145,7 @@ defmodule Baby.Connection do
           unquote(instate),
           %{inbox: [{unquote(type), _} = packet | rest]} = conn_info
         ) do
-      case Util.reduce_rem_messages(Protocol.inbound(packet, conn_info, unquote(name))) do
+      case Protocol.inbound(packet, conn_info, unquote(name)) do
         :error ->
           disconnect(conn_info)
 
