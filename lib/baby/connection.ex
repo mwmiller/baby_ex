@@ -78,8 +78,6 @@ defmodule Baby.Connection do
 
     %{
       pid: self(),
-      have: stored_info_map(clump_id),
-      want: %{},
       rem_messages: @max_connection_messages,
       shoots: [],
       clump_id: clump_id,
@@ -230,9 +228,4 @@ defmodule Baby.Connection do
 
   defp close_connection(%{:transport => transport, :socket => socket}),
     do: transport.close(socket)
-
-  defp stored_info_map(clump_id) do
-    Baobab.stored_info(clump_id)
-    |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
-  end
 end

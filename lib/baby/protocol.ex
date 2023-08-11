@@ -64,16 +64,14 @@ defmodule Baby.Protocol do
     |> pack_and_ship_nonce_box(nci, :AUTH)
   end
 
-  def outbound(conn_info, :HAVE) do
-    conn_info.have
-    |> Map.to_list()
-    |> Enum.map(fn {{a, l}, e} -> {a, l, e} end)
+  def outbound(%{clump_id: clump_id} = conn_info, :HAVE) do
+    clump_id
+    |> Baobab.stored_info()
     |> encode_replication(conn_info, :HAVE)
   end
 
-  def outbound(%{us_fun: uf} = conn_info, :WANT) do
-    conn_info.want
-    |> Map.keys()
+  def outbound(%{us_fun: uf, want: want} = conn_info, :WANT) do
+    want
     |> Enum.split_with(fn i -> uf.(i) end)
     |> then(fn {hi, lo} -> hi ++ lo end)
     |> encode_replication(conn_info, :WANT)
@@ -98,8 +96,9 @@ defmodule Baby.Protocol do
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       decoded
       |> ClumpMeta.filter_blocked(new_conn.clump_id)
-      |> want_their(new_conn, [])
+      |> want_their(stored_info_map(new_conn.clump_id), conn_info, [])
       |> outbound(:WANT)
+      |> Map.drop([:want])
     else
       _ -> :error
     end
@@ -166,17 +165,10 @@ defmodule Baby.Protocol do
     end
   end
 
-  defp want_their([], conn_info, wants) do
-    # At some point I thought that the symmtery with WANT Map
-    # made sense.  I surely knew about MapSet.  I must rediscover the why
-    # here.  It will be easier to do rules-based set operations with MapSets
-    mapped_wants = Enum.reduce(wants, %{}, fn e, a -> Map.put(a, e, true) end)
+  defp want_their([], _, conn_info, acc), do: Map.merge(conn_info, %{want: acc})
 
-    Map.merge(conn_info, %{want: Map.merge(conn_info.want, mapped_wants)})
-  end
-
-  defp want_their([[a, l, e] | rest], conn_info, acc) do
-    we_have = Map.get(conn_info.have, {a, l}, 0)
+  defp want_their([[a, l, e] | rest], haves, conn_info, acc) do
+    we_have = Map.get(haves, {a, l}, 0)
 
     add =
       cond do
@@ -195,7 +187,7 @@ defmodule Baby.Protocol do
           missing_bits([a, l, e], conn_info.clump_id)
       end
 
-    want_their(rest, conn_info, acc ++ add)
+    want_their(rest, haves, conn_info, acc ++ add)
   end
 
   defp missing_bits([a, l, e], clump_id) do
@@ -209,12 +201,12 @@ defmodule Baby.Protocol do
     do: %{conn_info | shoots: todo |> Enum.sort() |> Enum.uniq()}
 
   # Full logs for author
-  defp gather_our([[a] | rest], conn_info, todo) do
-    conn_info.have
-    |> Map.keys()
+  defp gather_our([[a] | rest], %{clump_id: clump_id} = conn_info, todo) do
+    clump_id
+    |> Baobab.stored_info()
     |> Enum.reduce([], fn entry, acc ->
       case entry do
-        {^a, l} -> [[a, l] | acc]
+        {^a, l, _} -> [[a, l] | acc]
         _ -> acc
       end
     end)
@@ -277,17 +269,7 @@ defmodule Baby.Protocol do
     import_summary(rest, conn_info)
   end
 
-  # They have to be provided in order or the chain won't verify
-  # There are extra updates here, but maybe there's an error mixed in
-  defp import_summary([%Baobab.Entry{author: author, log_id: l, seqnum: e} | rest], conn_info) do
-    a = author |> Baobab.Identity.as_base62()
-
-    import_summary(rest, %{
-      conn_info
-      | have: Map.merge(conn_info.have, %{{a, l} => e}),
-        want: Map.drop(conn_info.want, [{a}, {a, l}, {a, l, e}])
-    })
-  end
+  defp import_summary([_ | rest], conn_info), do: import_summary(rest, conn_info)
 
   # Do not bother sending empty arrays
   defp encode_replication([], conn_info, _), do: conn_info
@@ -334,4 +316,9 @@ defmodule Baby.Protocol do
   end
 
   defp enqueue_packet(packet, ci, type), do: %{ci | outbox: ci.outbox ++ [{packet, type}]}
+
+  defp stored_info_map(clump_id) do
+    Baobab.stored_info(clump_id)
+    |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
+  end
 end
