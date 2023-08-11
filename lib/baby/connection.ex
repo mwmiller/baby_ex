@@ -177,7 +177,7 @@ defmodule Baby.Connection do
       conn_info,
       :in,
       "type " <> stype <> " message in state " <> Atom.to_string(state),
-      :warn
+      :warning
     )
 
     disconnect(conn_info)

@@ -265,7 +265,7 @@ defmodule Baby.Protocol do
   defp import_summary([], conn_info), do: conn_info
 
   defp import_summary([{:error, reason} | rest], conn_info) do
-    Util.connection_log(conn_info, :in, "import error:" <> reason, :warn)
+    Util.connection_log(conn_info, :in, "import error:" <> reason, :warning)
     import_summary(rest, conn_info)
   end
 
@@ -286,7 +286,7 @@ defmodule Baby.Protocol do
   def unpack_nonce_box({_, <<nonce::binary-size(24), box::binary>>}, conn_info) do
     case MapSet.member?(conn_info.their_nonces, nonce) do
       true ->
-        Util.connection_log(conn_info, :in, "possible replay attack via reused nonce", :warn)
+        Util.connection_log(conn_info, :in, "possible replay attack via reused nonce", :warning)
         :replay
 
       false ->
