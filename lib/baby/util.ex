@@ -24,6 +24,16 @@ defmodule Baby.Util do
     Logger.log(level, Enum.join([tilde_peer(conn_info), arrow(dir), msg], " "))
   end
 
+  @doc """
+  Logging of fatal errors takes connection info and the error
+
+  Returns `:error`
+  """
+  def log_fatal(conn_info, error) do
+    Logger.log(:error, Enum.join([tilde_peer(conn_info), error], " "))
+    :error
+  end
+
   defp tilde_peer(conn_info) do
     case Map.fetch(conn_info, :short_peer) do
       {:ok, them} -> them

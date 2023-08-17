@@ -100,7 +100,7 @@ defmodule Baby.Protocol do
       |> outbound(:WANT)
       |> Map.drop([:want])
     else
-      _ -> :error
+      e -> Util.log_fatal(conn_info, e)
     end
   end
 
@@ -110,7 +110,7 @@ defmodule Baby.Protocol do
       decoded
       |> gather_our(new_conn, [])
     else
-      _ -> :error
+      e -> Util.log_fatal(conn_info, e)
     end
   end
 
@@ -119,7 +119,7 @@ defmodule Baby.Protocol do
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       import_their(decoded, new_conn)
     else
-      _ -> :error
+      e -> Util.log_fatal(conn_info, e)
     end
   end
 
@@ -138,7 +138,7 @@ defmodule Baby.Protocol do
         their_epk: their_epk
       })
     else
-      _ -> :error
+      e -> Util.log_fatal(conn_info, e)
     end
   end
 
@@ -161,7 +161,7 @@ defmodule Baby.Protocol do
       ])
       |> Map.merge(%{us_fun: fn index -> elem(index, 0) in us end})
     else
-      _ -> :error
+      e -> Util.log_fatal(conn_info, e)
     end
   end
 
@@ -294,9 +294,8 @@ defmodule Baby.Protocol do
           {:ok, msg} ->
             {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
 
-          _ ->
-            Util.connection_log(conn_info, :in, "unboxing error", :error)
-            :unbox
+          e ->
+            Util.log_fatal(conn_info, e)
         end
     end
   end
