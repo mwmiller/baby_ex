@@ -33,7 +33,7 @@ defmodule Baby.Application do
     for clump <- clumps do
       case Keyword.get(clump, :id) do
         nil -> :ok
-        clump_id -> File.mkdir_p(Path.join([baobab_spool, clump_id]))
+        clump_id -> Baobab.create_clump(clump_id)
       end
     end
 
