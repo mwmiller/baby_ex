@@ -70,12 +70,7 @@ defmodule Baby.Protocol do
     |> encode_replication(conn_info, :HAVE)
   end
 
-  def outbound(%{us_fun: uf, want: want} = conn_info, :WANT) do
-    want
-    |> Enum.split_with(fn i -> uf.(i) end)
-    |> then(fn {hi, lo} -> hi ++ lo end)
-    |> encode_replication(conn_info, :WANT)
-  end
+  def outbound(%{want: want} = conn_info, :WANT), do: encode_replication(want, conn_info, :WANT)
 
   def outbound(%{shoots: []} = conn_info, :BAMB), do: conn_info
 
@@ -165,19 +160,16 @@ defmodule Baby.Protocol do
     end
   end
 
-  defp want_their([], _, conn_info, acc), do: Map.merge(conn_info, %{want: acc})
+  defp want_their([], _, conn_info, acc),
+    do: Map.merge(conn_info, %{want: sort_wants(acc, conn_info)})
 
   defp want_their([[a, l, e] | rest], haves, conn_info, acc) do
     we_have = Map.get(haves, {a, l}, 0)
 
     add =
       cond do
-        # If we've lost our own logs, try to get everything
         we_have == 0 ->
-          case conn_info.us_fun.({a}) do
-            false -> [{a, l, e}]
-            true -> [{a, l}]
-          end
+          [{a, l, e}]
 
         we_have < e ->
           [{a, l, we_have + 1, e}]
@@ -188,6 +180,70 @@ defmodule Baby.Protocol do
       end
 
     want_their(rest, haves, conn_info, acc ++ add)
+  end
+
+  defp sort_wants(want, %{us_fun: uf, send_key: <<sok, _::binary>>}) do
+    # sok is effectively random per connection
+    want
+    |> presort(rem(sok, 8))
+    |> Enum.split_with(fn i -> uf.(i) end)
+    |> then(fn {hi, lo} -> hi ++ lo end)
+  end
+
+  # Ascending log_id, then ascending author
+  defp presort(wants, order) when order == 0 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
+  end
+
+  # Ascending author, then ascending log_id
+  defp presort(wants, order) when order == 1 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
+  end
+
+  # Ascending log_id, then descending author
+  defp presort(wants, order) when order == 2 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
+  end
+
+  # Ascending author, then descending log_id
+  defp presort(wants, order) when order == 3 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
+  end
+
+  # Descending log_id, then ascending author
+  defp presort(wants, order) when order == 4 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
+  end
+
+  # Descending author, then ascending log_id
+  defp presort(wants, order) when order == 5 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
+  end
+
+  # Descending log_id, then descending author
+  defp presort(wants, order) when order == 6 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
+  end
+
+  # Descending author, then descendin log_id
+  defp presort(wants, order) when order == 7 do
+    wants
+    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
+    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
   end
 
   defp missing_bits([a, l, e], clump_id) do
