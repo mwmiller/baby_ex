@@ -7,8 +7,8 @@ defmodule Baby.Connection do
   Statee machine connection handler
   """
 
-  @inrate 59
-  @outrate 61
+  @inrate 937
+  @outrate 941
   @idle_timeout {{:timeout, :idle}, 59957, :nothing_happening}
 
   @impl true
