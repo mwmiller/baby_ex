@@ -7,9 +7,9 @@ defmodule Baby.Connection do
   Statee machine connection handler
   """
 
-  @inrate 109
-  @outrate 113
-  @max_spins 353
+  @inrate 599
+  @outrate 601
+  @max_spins 211
 
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
