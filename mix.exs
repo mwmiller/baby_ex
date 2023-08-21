@@ -4,7 +4,7 @@ defmodule Baby.MixProject do
   def project do
     [
       app: :baby,
-      version: "0.16.4",
+      version: "0.17.0",
       elixir: "~> 1.13",
       name: "Baby",
       source_url: "https://github.com/mwmiller/baby_ex",
@@ -25,6 +25,7 @@ defmodule Baby.MixProject do
   defp deps do
     [
       {:baobab, "~> 0.19.0"},
+      {:primacy,">= 0.0.0"},
       {:stlv, "~> 1.0"},
       {:varu64, "~> 1.0"},
       # Third-party

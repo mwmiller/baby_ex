@@ -4,11 +4,9 @@ defmodule Baby.Connection do
   alias Baby.{Protocol, Util}
 
   @moduledoc """
-  Statee machine connection handler
+  State machine connection handler
   """
 
-  @inrate 599
-  @outrate 601
   @max_spins 211
 
   @impl true
@@ -60,8 +58,11 @@ defmodule Baby.Connection do
   defp initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
-    Process.send_after(self(), :outbox, @outrate, [])
-    Process.send_after(self(), :inbox, @inrate, [])
+    inrate = 500 |> Primacy.primes_near(count: 10) |> Enum.random()
+    outrate = inrate |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+
+    Process.send_after(self(), :inbox, inrate, [])
+    Process.send_after(self(), :outbox, outrate, [])
 
     %{
       pid: self(),
@@ -73,7 +74,9 @@ defmodule Baby.Connection do
       our_sk: Baobab.Identity.key(identity, :secret),
       their_nonces: MapSet.new(),
       inbox: [],
+      inrate: inrate,
       outbox: [],
+      outrate: outrate,
       wire: <<>>,
       spins: @max_spins,
       max_inbox: 1024 * 1024 * 3,
@@ -89,22 +92,28 @@ defmodule Baby.Connection do
   def handle_event(:info, :outbox, _, %{spins: s} = conn_info) when s <= 0,
     do: disconnect(conn_info)
 
-  def handle_event(:info, :outbox, _, %{outbox: [{packet, type} | rest]} = conn_info) do
+  def handle_event(
+        :info,
+        :outbox,
+        _,
+        %{outbox: [{packet, type} | rest], outrate: rate} = conn_info
+      ) do
     Util.connection_log(conn_info, :out, type)
     send_packet(packet, conn_info)
-    Process.send_after(conn_info.pid, :outbox, @outrate)
+    Process.send_after(conn_info.pid, :outbox, rate)
     {:keep_state, %{conn_info | outbox: rest}, []}
   end
 
-  def handle_event(:info, :outbox, _, %{shoots: shoots} = conn_info) when length(shoots) > 0 do
+  def handle_event(:info, :outbox, _, %{shoots: shoots, outrate: rate} = conn_info)
+      when length(shoots) > 0 do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
-    Process.send_after(conn_info.pid, :outbox, @outrate)
+    Process.send_after(conn_info.pid, :outbox, rate)
     {:keep_state, Protocol.outbound(%{conn_info | spins: @max_spins}, :BAMB), []}
   end
 
-  def handle_event(:info, :outbox, _, %{pid: pid, spins: s} = conn_info) do
-    Process.send_after(pid, :outbox, @outrate)
+  def handle_event(:info, :outbox, _, %{pid: pid, spins: s, outrate: rate} = conn_info) do
+    Process.send_after(pid, :outbox, rate)
     {:keep_state, %{conn_info | spins: s - 1}, []}
   end
 
@@ -127,7 +136,7 @@ defmodule Baby.Connection do
           :info,
           :inbox,
           unquote(instate),
-          %{inbox: [{unquote(type), _} = packet | rest]} = conn_info
+          %{inbox: [{unquote(type), _} = packet | rest], inrate: rate} = conn_info
         ) do
       case Protocol.inbound(packet, conn_info, unquote(name)) do
         :error ->
@@ -136,7 +145,7 @@ defmodule Baby.Connection do
 
         nci ->
           Util.connection_log(nci, :in, unquote(name))
-          Process.send_after(nci.pid, :inbox, @inrate, [])
+          Process.send_after(nci.pid, :inbox, rate, [])
           {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: @max_spins}), []}
       end
     end
@@ -159,8 +168,8 @@ defmodule Baby.Connection do
   end
 
   # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, %{spins: s} = conn_info) do
-    Process.send_after(conn_info.pid, :inbox, @inrate, [])
+  def handle_event(:info, :inbox, _, %{spins: s, inrate: rate} = conn_info) do
+    Process.send_after(conn_info.pid, :inbox, rate, [])
     {:keep_state, %{conn_info | spins: s - 1}, []}
   end
 
