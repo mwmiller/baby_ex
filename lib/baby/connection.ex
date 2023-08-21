@@ -7,8 +7,6 @@ defmodule Baby.Connection do
   State machine connection handler
   """
 
-  @max_spins 211
-
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
 
@@ -60,6 +58,7 @@ defmodule Baby.Connection do
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
     inrate = 500 |> Primacy.primes_near(count: 10) |> Enum.random()
     outrate = inrate |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+    max_spins = 100 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
 
     Process.send_after(self(), :inbox, inrate, [])
     Process.send_after(self(), :outbox, outrate, [])
@@ -78,7 +77,8 @@ defmodule Baby.Connection do
       outbox: [],
       outrate: outrate,
       wire: <<>>,
-      spins: @max_spins,
+      spins: 0,
+      max_spins: max_spins,
       max_inbox: 1024 * 1024 * 3,
       max_wire: 1024 * 1024 * 11
     }
@@ -89,8 +89,9 @@ defmodule Baby.Connection do
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
 
-  def handle_event(:info, :outbox, _, %{spins: s} = conn_info) when s <= 0,
-    do: disconnect(conn_info)
+  def handle_event(:info, :outbox, _, %{spins: s, max_spins: ms} = conn_info) when s >= ms do
+    disconnect(conn_info)
+  end
 
   def handle_event(
         :info,
@@ -109,12 +110,12 @@ defmodule Baby.Connection do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, rate)
-    {:keep_state, Protocol.outbound(%{conn_info | spins: @max_spins}, :BAMB), []}
+    {:keep_state, Protocol.outbound(%{conn_info | spins: 0}, :BAMB), []}
   end
 
   def handle_event(:info, :outbox, _, %{pid: pid, spins: s, outrate: rate} = conn_info) do
     Process.send_after(pid, :outbox, rate)
-    {:keep_state, %{conn_info | spins: s - 1}, []}
+    {:keep_state, %{conn_info | spins: s + 1}, []}
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
@@ -146,7 +147,7 @@ defmodule Baby.Connection do
         nci ->
           Util.connection_log(nci, :in, unquote(name))
           Process.send_after(nci.pid, :inbox, rate, [])
-          {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: @max_spins}), []}
+          {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: 0}), []}
       end
     end
   end
@@ -163,14 +164,14 @@ defmodule Baby.Connection do
     disconnect(conn_info)
   end
 
-  def handle_event(:info, :inbox, _, %{spins: s} = conn_info) when s <= 0 do
+  def handle_event(:info, :inbox, _, %{spins: s, max_spins: ms} = conn_info) when s >= ms do
     disconnect(conn_info)
   end
 
   # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, %{spins: s, inrate: rate} = conn_info) do
-    Process.send_after(conn_info.pid, :inbox, rate, [])
-    {:keep_state, %{conn_info | spins: s - 1}, []}
+  def handle_event(:info, :inbox, _, %{pid: pid, spins: s, inrate: rate} = conn_info) do
+    Process.send_after(pid, :inbox, rate, [])
+    {:keep_state, %{conn_info | spins: s + 1}, []}
   end
 
   defp wire_buffer(data, %{inbox: inbox, wire: cw, max_wire: mw, max_inbox: mi} = conn_info) do
