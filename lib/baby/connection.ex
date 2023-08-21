@@ -75,7 +75,7 @@ defmodule Baby.Connection do
       inbox: [],
       outbox: [],
       spins: @max_spins,
-      max_wire: 1024 * 1024 * 23,
+      max_wire: 1024 * 1024 * 11,
       wire: <<>>
     }
   end
