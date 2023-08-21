@@ -74,9 +74,10 @@ defmodule Baby.Connection do
       their_nonces: MapSet.new(),
       inbox: [],
       outbox: [],
+      wire: <<>>,
       spins: @max_spins,
-      max_wire: 1024 * 1024 * 11,
-      wire: <<>>
+      max_inbox: 1024 * 1024 * 3,
+      max_wire: 1024 * 1024 * 11
     }
   end
 
@@ -163,12 +164,12 @@ defmodule Baby.Connection do
     {:keep_state, %{conn_info | spins: s - 1}, []}
   end
 
-  defp wire_buffer(data, %{inbox: inbox, wire: cw, max_wire: mw} = conn_info) do
+  defp wire_buffer(data, %{inbox: inbox, wire: cw, max_wire: mw, max_inbox: mi} = conn_info) do
     active_once(conn_info)
     wire = cw <> data
 
     cond do
-      length(inbox) > 10 ->
+      length(inbox) > 10 or Enum.reduce(inbox, 0, fn {_, c}, a -> a + byte_size(c) end) > mi ->
         # Yield
         {:keep_state, %{conn_info | :wire => wire}, []}
 
