@@ -168,13 +168,13 @@ defmodule Baby.Connection do
     wire = cw <> data
 
     cond do
-      byte_size(wire) > mw ->
-        Util.log_fatal(conn_info, "sending too fast")
-        disconnect(conn_info)
-
       length(inbox) > 10 ->
         # Yield
         {:keep_state, %{conn_info | :wire => wire}, []}
+
+      byte_size(wire) > mw ->
+        Util.log_fatal(conn_info, "sending too fast")
+        disconnect(conn_info)
 
       true ->
         case Stlv.decode(wire) do
