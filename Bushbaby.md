@@ -192,7 +192,7 @@ This message type contains an array of Bamboo objects.  Each array element shoul
 
 ### Peering Notes
 
-It is worth noting, once again, that there is no request/response cycle in the protocol. Each message stands on its own. This might lead to deadlocks between ill-behaved peers.  Idle timeouts should be implemented to close connections which do not seem to be advancing propagation.
+It is worth noting, once again, that there is no request/response cycle in the protocol. Each message stands on its own. This might lead to deadlocks between ill-behaved peers.  Limits should be implemented to close connections which do not seem to be advancing propagation.
 
 It is also likely advantageous for a node to maintain information about the behavior of its peers. Such information can help determine appropriate handling of future connections and messages. 
 

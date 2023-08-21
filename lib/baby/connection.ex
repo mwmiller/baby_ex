@@ -9,7 +9,7 @@ defmodule Baby.Connection do
 
   @inrate 937
   @outrate 941
-  @idle_timeout {{:timeout, :idle}, 59957, :nothing_happening}
+  @max_connection_time {{:timeout, :connection}, 179_999, :complete}
 
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
@@ -43,7 +43,7 @@ defmodule Baby.Connection do
       :hello,
       initial_conn_info(opts, socket, transport),
       [
-        @idle_timeout
+        @max_connection_time
       ]
     )
   end
@@ -88,19 +88,8 @@ defmodule Baby.Connection do
 
   # Generic TCP handling stuff. Non-state dependant
   @impl true
-  # There is nothing queued to do, go ahead and disconnect
-  def handle_event(
-        {:timeout, :idle},
-        :nothing_happening,
-        _,
-        %{inbox: [], outbox: [], shoots: []} = conn_info
-      ),
-      do: disconnect(conn_info)
-
-  # Still stuff happening, check back next period
-  def handle_event({:timeout, :idle}, :nothing_happening, _, conn_info) do
-    {:keep_state, conn_info, [@idle_timeout]}
-  end
+  # We don't want to hold open connections forever
+  def handle_event({:timeout, :idle}, :complete, _, conn_info), do: disconnect(conn_info)
 
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
