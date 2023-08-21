@@ -285,7 +285,7 @@ defmodule Baby.Protocol do
 
   defp gather_our([[a, l, s, e] | rest], conn_info, todo) do
     # Break up large requests which are not full logs
-    case e - s >= 11 do
+    case e - s >= 7 do
       true ->
         m = div(s + e, 2)
         gather_our([[a, l, s, m], [a, l, m + 1, e]] ++ rest, conn_info, todo)

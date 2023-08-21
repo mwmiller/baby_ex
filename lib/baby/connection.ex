@@ -7,9 +7,9 @@ defmodule Baby.Connection do
   Statee machine connection handler
   """
 
-  @inrate 1129
-  @outrate 1201
-  @max_connection_time {{:timeout, :connection}, 179_999, :complete}
+  @inrate 109
+  @outrate 113
+  @max_spins 353
 
   @impl true
   def callback_mode(), do: [:handle_event_function, :state_enter]
@@ -37,15 +37,7 @@ defmodule Baby.Connection do
     {:ok, socket} = :ranch.handshake(ref)
     :ok = transport.setopts(socket, active: :once)
 
-    :gen_statem.enter_loop(
-      __MODULE__,
-      [],
-      :hello,
-      initial_conn_info(opts, socket, transport),
-      [
-        @max_connection_time
-      ]
-    )
+    :gen_statem.enter_loop(__MODULE__, [], :hello, initial_conn_info(opts, socket, transport), [])
   end
 
   def init(opts) do
@@ -82,17 +74,19 @@ defmodule Baby.Connection do
       their_nonces: MapSet.new(),
       inbox: [],
       outbox: [],
+      spins: @max_spins,
+      max_wire: 1024 * 1024 * 23,
       wire: <<>>
     }
   end
 
   # Generic TCP handling stuff. Non-state dependant
   @impl true
-  # We don't want to hold open connections forever
-  def handle_event({:timeout, :idle}, :complete, _, conn_info), do: disconnect(conn_info)
-
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
   def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
+
+  def handle_event(:info, :outbox, _, %{spins: s} = conn_info) when s <= 0,
+    do: disconnect(conn_info)
 
   def handle_event(:info, :outbox, _, %{outbox: [{packet, type} | rest]} = conn_info) do
     Util.connection_log(conn_info, :out, type)
@@ -105,12 +99,12 @@ defmodule Baby.Connection do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, Protocol.outbound(conn_info, :BAMB), []}
+    {:keep_state, Protocol.outbound(%{conn_info | spins: @max_spins}, :BAMB), []}
   end
 
-  def handle_event(:info, :outbox, _, %{outbox: [], shoots: []} = conn_info) do
-    Process.send_after(conn_info.pid, :outbox, @outrate)
-    {:keep_state, conn_info, []}
+  def handle_event(:info, :outbox, _, %{pid: pid, spins: s} = conn_info) do
+    Process.send_after(pid, :outbox, @outrate)
+    {:keep_state, %{conn_info | spins: s - 1}, []}
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
@@ -136,12 +130,13 @@ defmodule Baby.Connection do
         ) do
       case Protocol.inbound(packet, conn_info, unquote(name)) do
         :error ->
+          Util.log_fatal(conn_info, "malformed packet")
           disconnect(conn_info)
 
         nci ->
           Util.connection_log(nci, :in, unquote(name))
           Process.send_after(nci.pid, :inbox, @inrate, [])
-          {:next_state, unquote(outstate), %{nci | inbox: rest}, []}
+          {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: @max_spins}), []}
       end
     end
   end
@@ -154,35 +149,45 @@ defmodule Baby.Connection do
         a -> Atom.to_string(a)
       end
 
-    Util.connection_log(
-      conn_info,
-      :in,
-      "type " <> stype <> " message in state " <> Atom.to_string(state),
-      :warning
-    )
+    Util.log_fatal(conn_info, "type " <> stype <> " message in state " <> Atom.to_string(state))
+    disconnect(conn_info)
+  end
 
+  def handle_event(:info, :inbox, _, %{spins: s} = conn_info) when s <= 0 do
     disconnect(conn_info)
   end
 
   # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, conn_info) do
+  def handle_event(:info, :inbox, _, %{spins: s} = conn_info) do
     Process.send_after(conn_info.pid, :inbox, @inrate, [])
-    {:keep_state, conn_info, []}
+    {:keep_state, %{conn_info | spins: s - 1}, []}
   end
 
-  defp wire_buffer(data, conn_info) do
+  defp wire_buffer(data, %{inbox: inbox, wire: cw, max_wire: mw} = conn_info) do
     active_once(conn_info)
-    wire = conn_info.wire <> data
+    wire = cw <> data
 
-    case Stlv.decode(wire) do
-      :error ->
+    cond do
+      byte_size(wire) > mw ->
+        Util.log_fatal(conn_info, "sending too fast")
+        disconnect(conn_info)
+
+      length(inbox) > 10 ->
+        # Yield
         {:keep_state, %{conn_info | :wire => wire}, []}
 
-      {type, value, rest} ->
-        wire_buffer(rest, %{conn_info | inbox: conn_info.inbox ++ [{type, value}], wire: <<>>})
+      true ->
+        case Stlv.decode(wire) do
+          :error ->
+            {:keep_state, %{conn_info | :wire => wire}, []}
 
-      _ ->
-        disconnect(conn_info)
+          {type, value, rest} ->
+            wire_buffer(rest, %{conn_info | inbox: inbox ++ [{type, value}], wire: <<>>})
+
+          _ ->
+            Util.log_fatal(conn_info, "unexpected STLV error")
+            disconnect(conn_info)
+        end
     end
   end
 
