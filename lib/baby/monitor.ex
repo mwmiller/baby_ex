@@ -1,5 +1,6 @@
 defmodule Baby.Monitor do
   use GenServer
+  alias Baby.Util
   require Logger
 
   @moduledoc """
@@ -42,7 +43,7 @@ defmodule Baby.Monitor do
     )
 
     # We get inherent jitter via the connection spin up
-    next_start = Baby.period_to_ms(Keyword.get(opts, :period, {17, :minute}))
+    next_start = Util.period_to_ms(Keyword.get(opts, :period, {17, :minute}))
 
     Process.send_after(self(), {:cryout, opts}, next_start, [])
     {:noreply, state}
