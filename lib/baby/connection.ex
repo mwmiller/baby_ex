@@ -2,6 +2,7 @@ defmodule Baby.Connection do
   @behaviour :gen_statem
   @behaviour :ranch_protocol
   alias Baby.{Protocol, Util}
+  alias Baby.Connection.Registry
 
   @moduledoc """
   State machine connection handler
@@ -31,19 +32,26 @@ defmodule Baby.Connection do
   @impl true
   def init({ref, transport, opts}) do
     {:ok, socket} = :ranch.handshake(ref)
+    {:ok, peer} = transport.peername(socket)
     :ok = transport.setopts(socket, active: :once)
+    # For now, we aren't going to prevent the same host
+    # from connecting more than once.
+    Registry.register_name(peer, self())
 
     :gen_statem.enter_loop(__MODULE__, [], :hello, initial_conn_info(opts, socket, transport), [])
   end
 
   def init(opts) do
-    case :gen_tcp.connect(Keyword.get(opts, :host), Keyword.get(opts, :port), [
-           :binary,
-           active: :once
-         ]) do
-      {:ok, socket} ->
-        {:ok, :hello, initial_conn_info(opts, socket, nil), []}
+    host = Keyword.get(opts, :host)
+    port = Keyword.get(opts, :port)
+    key = {host, port}
 
+    # For outbound we simply want to prevent connecting to them twice
+    with false <- Registry.active?(key),
+         {:ok, socket} <- :gen_tcp.connect(host, port, [:binary, active: :once]) do
+      Registry.register_name({host, port}, self())
+      {:ok, :hello, initial_conn_info(opts, socket, nil), []}
+    else
       _ ->
         {:stop, :normal}
     end

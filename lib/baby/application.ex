@@ -60,7 +60,7 @@ defmodule Baby.Application do
       end)
 
     opts = [strategy: :one_for_one, name: Baby.Supervisor]
-    Supervisor.start_link(children, opts)
+    Supervisor.start_link(children ++ [Baby.Connection.Registry], opts)
   end
 
   @doc """
