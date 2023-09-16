@@ -35,7 +35,7 @@ defmodule Baby.Monitor do
       Baby.Monitor.DynamicSupervisor,
       {Baby.Connection,
        [
-         host: Baby.host_to_ip(host),
+         host: Util.host_to_ip(host),
          port: Keyword.get(opts, :port),
          identity: id,
          clump_id: clump

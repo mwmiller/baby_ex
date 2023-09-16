@@ -1,5 +1,6 @@
 defmodule Baby do
   require Logger
+  alias Baby.Util
 
   @moduledoc """
   Bushbaby Automated Bamboo Yields
@@ -31,7 +32,7 @@ defmodule Baby do
     do: connect(host, String.to_integer(port), id_options)
 
   def connect(host, port, id_options) when is_binary(host),
-    do: connect(host_to_ip(host), port, id_options)
+    do: host |> Util.host_to_ip() |> connect(port, id_options)
 
   def connect(host, port, id_options) do
     Baby.Connection.start_link(
@@ -40,21 +41,5 @@ defmodule Baby do
       identity: Keyword.get(id_options, :identity),
       clump_id: Keyword.get(id_options, :clump_id)
     )
-  end
-
-  @doc false
-  def host_to_ip(host) do
-    where = to_charlist(host)
-
-    case :inet.gethostbyname(where) do
-      {:ok, {:hostent, _, _, _, _, [addr | _more]}} ->
-        addr
-
-      _ ->
-        case :inet.parse_ipv6_address(where) do
-          {:ok, addr} -> addr
-          _ -> :error
-        end
-    end
   end
 end

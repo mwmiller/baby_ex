@@ -19,4 +19,10 @@ defmodule BabyUtilTest do
     assert [{1, 20}] == Util.range_points(1..20)
     assert [{1, 5}, {7, 10}] == Util.range_points([1, 2, 3, 4, 5, 7, 8, 9, 10])
   end
+
+  test "host_to_ip" do
+    # This is about the only one on which I can count across envrionments
+    assert {127, 0, 0, 1} == Util.host_to_ip("localhost")
+    assert :error == Util.host_to_ip({127, 0, 0, 1})
+  end
 end

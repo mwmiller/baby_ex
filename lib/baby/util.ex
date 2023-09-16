@@ -98,4 +98,24 @@ defmodule Baby.Util do
   def period_to_ms({amt, :day}), do: period_to_ms({amt * 24, :hour})
   def period_to_ms({amt, :week}), do: period_to_ms({amt * 7, :day})
   def period_to_ms(_), do: :error
+
+  @doc """
+  A simple wrapper to convert a host binary into an IP tuple
+  """
+  def host_to_ip(host) when is_binary(host) do
+    where = to_charlist(host)
+
+    case :inet.gethostbyname(where) do
+      {:ok, {:hostent, _, _, _, _, [addr | _more]}} ->
+        addr
+
+      _ ->
+        case :inet.parse_ipv6_address(where) do
+          {:ok, addr} -> addr
+          _ -> :error
+        end
+    end
+  end
+
+  def host_to_ip(_), do: :error
 end
