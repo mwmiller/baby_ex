@@ -1,6 +1,7 @@
 defmodule Baby do
   require Logger
   alias Baby.Util
+  alias Baby.Connection.Registry
 
   @moduledoc """
   Bushbaby Automated Bamboo Yields
@@ -41,5 +42,36 @@ defmodule Baby do
       identity: Keyword.get(id_options, :identity),
       clump_id: Keyword.get(id_options, :clump_id)
     )
+  end
+
+  @doc """
+  Determine if there is an active connection on a given `{host, port}`
+  """
+  def is_connected?({host, port}) when is_tuple(host), do: Registry.active?({host, port})
+
+  def is_connected?({host, port}) do
+    case Util.host_to_ip(host) do
+      :error -> false
+      ip -> is_connected?({ip, port})
+    end
+  end
+
+  def is_connected?(_), do: false
+
+  @doc """
+  Determine if there is an active connection on an array of `{host, port}`
+
+  Returns a map with the tuples as keys and a boolean result
+  """
+  def are_connected?(queries)
+
+  def are_connected?(queries) do
+    check_connections(queries, %{})
+  end
+
+  defp check_connections([], acc), do: acc
+
+  defp check_connections([pair | rest], acc) do
+    check_connections(rest, Map.put(acc, pair, is_connected?(pair)))
   end
 end
