@@ -38,9 +38,15 @@ defmodule Baby.Connection.Registry do
         {:badarg, {conn_name, message}}
 
       pid ->
-        Kernel.send(pid, message)
-        pid
+        pid_sender(pid, message)
     end
+  end
+
+  @doc """
+  Send a message to all registered connections
+  """
+  def broadcast(message) do
+    GenServer.call(:conn_reg, {:broadcast, message})
   end
 
   @doc """
@@ -75,6 +81,21 @@ defmodule Baby.Connection.Registry do
       _ ->
         {:reply, :no, state}
     end
+  end
+
+  def handle_call({:broadcast, message}, _from, state) do
+    res =
+      state
+      |> Map.values()
+      |> Enum.map(fn pid -> pid_sender(pid, message) end)
+
+    {:reply, res, state}
+  end
+
+  # Meh
+  defp pid_sender(pid, message) do
+    Process.send(pid, message, [])
+    pid
   end
 
   def handle_cast({:unregister_name, conn_name}, state) do
