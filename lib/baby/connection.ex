@@ -64,11 +64,9 @@ defmodule Baby.Connection do
   defp initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
-    inrate = 500 |> Primacy.primes_near(count: 10) |> Enum.random()
-    outrate = inrate |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+    outrate = 500 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
     max_spins = 100 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
 
-    Process.send_after(self(), :inbox, inrate, [])
     Process.send_after(self(), :outbox, outrate, [])
 
     %{
@@ -81,7 +79,6 @@ defmodule Baby.Connection do
       our_sk: Baobab.Identity.key(identity, :secret),
       their_nonces: MapSet.new(),
       inbox: [],
-      inrate: inrate,
       outbox: [],
       outrate: outrate,
       wire: <<>>,
@@ -95,7 +92,11 @@ defmodule Baby.Connection do
   # Generic TCP handling stuff. Non-state dependant
   @impl true
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
-  def handle_event(:info, {:tcp, _socket, data}, _, conn_info), do: wire_buffer(data, conn_info)
+
+  def handle_event(:info, {:tcp, _socket, data}, _, conn_info) do
+    IO.inspect(:wb)
+    wire_buffer(data, conn_info)
+  end
 
   def handle_event(:info, :outbox, _, %{spins: s, max_spins: ms} = conn_info) when s >= ms do
     disconnect(conn_info)
@@ -105,11 +106,11 @@ defmodule Baby.Connection do
         :info,
         :outbox,
         _,
-        %{outbox: [{packet, type} | rest], outrate: rate} = conn_info
+        %{outbox: [{packet, type} | rest], outrate: rate, pid: pid} = conn_info
       ) do
     Util.connection_log(conn_info, :out, type)
     send_packet(packet, conn_info)
-    Process.send_after(conn_info.pid, :outbox, rate)
+    Process.send_after(pid, :outbox, rate)
     {:keep_state, %{conn_info | outbox: rest}, []}
   end
 
@@ -122,6 +123,7 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:info, :outbox, _, %{pid: pid, spins: s, outrate: rate} = conn_info) do
+    IO.inspect({:eo, :erlang.process_info(pid, :messages)})
     Process.send_after(pid, :outbox, rate)
     {:keep_state, %{conn_info | spins: s + 1}, []}
   end
@@ -145,7 +147,7 @@ defmodule Baby.Connection do
           :info,
           :inbox,
           unquote(instate),
-          %{inbox: [{unquote(type), _} = packet | rest], inrate: rate} = conn_info
+          %{inbox: [{unquote(type), _} = packet | rest]} = conn_info
         ) do
       case Protocol.inbound(packet, conn_info, unquote(name)) do
         :error ->
@@ -154,7 +156,6 @@ defmodule Baby.Connection do
 
         nci ->
           Util.connection_log(nci, :in, unquote(name))
-          Process.send_after(nci.pid, :inbox, rate, [])
           {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: 0}), []}
       end
     end
@@ -177,8 +178,9 @@ defmodule Baby.Connection do
   end
 
   # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, %{pid: pid, spins: s, inrate: rate} = conn_info) do
-    Process.send_after(pid, :inbox, rate, [])
+  def handle_event(:info, :inbox, _, %{pid: pid, spins: s} = conn_info) do
+    IO.inspect({:ei, :erlang.process_info(pid, :messages)})
+    Process.send(pid, :inbox, [])
     {:keep_state, %{conn_info | spins: s + 1}, []}
   end
 
@@ -188,6 +190,7 @@ defmodule Baby.Connection do
 
     cond do
       length(inbox) > 10 or Enum.reduce(inbox, 0, fn {_, c}, a -> a + byte_size(c) end) > mi ->
+        IO.inspect(:yield)
         # Yield
         {:keep_state, %{conn_info | :wire => wire}, []}
 
@@ -201,6 +204,7 @@ defmodule Baby.Connection do
             {:keep_state, %{conn_info | :wire => wire}, []}
 
           {type, value, rest} ->
+            Process.send(conn_info.pid, :inbox, [])
             wire_buffer(rest, %{conn_info | inbox: inbox ++ [{type, value}], wire: <<>>})
 
           _ ->
