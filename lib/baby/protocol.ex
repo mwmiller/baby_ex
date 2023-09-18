@@ -314,7 +314,7 @@ defmodule Baby.Protocol do
 
   defp import_their(stuff, conn_info) do
     stuff
-    |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id)
+    |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id, replace: false)
     |> import_summary(conn_info)
   end
 
