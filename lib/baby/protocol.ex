@@ -185,65 +185,40 @@ defmodule Baby.Protocol do
   defp sort_wants(want, %{us_fun: uf, send_key: <<sok, _::binary>>}) do
     # sok is effectively random per connection
     want
-    |> presort(rem(sok, 8))
+    |> presort(<<sok>>)
     |> Enum.split_with(fn i -> uf.(i) end)
     |> then(fn {hi, lo} -> hi ++ lo end)
   end
 
-  # Ascending log_id, then ascending author
-  defp presort(wants, order) when order == 0 do
+  # element 0 is the author, element 1 is the log_id
+  # we decides against which element we sort first
+  # fo decides the order for the first element sorted
+  # so decides the order for the second element sorted
+  # dr decides whether to rotate the list
+  def presort(wants, <<we::1, fo::1, so::1, dr::1, _::bitstring>>) do
+    {first, second} = which_elem(we)
+
     wants
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
+    |> Enum.sort_by(fn e -> elem(e, first) end, which_order(fo))
+    |> Enum.sort_by(fn e -> elem(e, second) end, which_order(so))
+    |> maybe_rotate(dr)
   end
 
-  # Ascending author, then ascending log_id
-  defp presort(wants, order) when order == 1 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
-  end
+  # author then log_id
+  defp which_elem(0), do: {0, 1}
+  # log_id then author
+  defp which_elem(1), do: {1, 0}
 
-  # Ascending log_id, then descending author
-  defp presort(wants, order) when order == 2 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
-  end
+  defp which_order(0), do: :asc
+  defp which_order(1), do: :desc
 
-  # Ascending author, then descending log_id
-  defp presort(wants, order) when order == 3 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
-  end
+  # Do not "rotate"
+  defp maybe_rotate(list, 0), do: list
 
-  # Descending log_id, then ascending author
-  defp presort(wants, order) when order == 4 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :asc)
-  end
-
-  # Descending author, then ascending log_id
-  defp presort(wants, order) when order == 5 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :asc)
-  end
-
-  # Descending log_id, then descending author
-  defp presort(wants, order) when order == 6 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
-  end
-
-  # Descending author, then descendin log_id
-  defp presort(wants, order) when order == 7 do
-    wants
-    |> Enum.sort_by(fn e -> elem(e, 0) end, :desc)
-    |> Enum.sort_by(fn e -> elem(e, 1) end, :desc)
+  # "rotate" the middle to the front
+  defp maybe_rotate(list, 1) do
+    {front, back} = Enum.split(list, list |> length |> div(2))
+    back ++ front
   end
 
   defp missing_bits([a, l, e], clump_id) do
