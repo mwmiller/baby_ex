@@ -1,6 +1,6 @@
 defmodule Baby.Protocol do
   alias Baobab.ClumpMeta
-  alias Baby.Util
+  alias Baby.{Util, LogWriter}
 
   @moduledoc """
   Protocol implementation
@@ -112,7 +112,7 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :BAMB) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      import_their(decoded, new_conn)
+      LogWriter.import_their(decoded, new_conn)
     else
       e -> Util.log_fatal(conn_info, e)
     end
@@ -286,21 +286,6 @@ defmodule Baby.Protocol do
 
   # We've munged everything into one of the above types
   defp pull_log_data(_, _), do: []
-
-  defp import_their(stuff, conn_info) do
-    stuff
-    |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id, replace: false)
-    |> import_summary(conn_info)
-  end
-
-  defp import_summary([], conn_info), do: conn_info
-
-  defp import_summary([{:error, reason} | rest], conn_info) do
-    Util.connection_log(conn_info, :in, "import error:" <> reason, :warning)
-    import_summary(rest, conn_info)
-  end
-
-  defp import_summary([_ | rest], conn_info), do: import_summary(rest, conn_info)
 
   # Do not bother sending empty arrays
   defp encode_replication([], conn_info, _), do: conn_info

@@ -5,7 +5,7 @@ defmodule Baby.Application do
   To use the `:baby` configuration, it may be started via:
 
   ```
-  Baby.Application.start(:normal) 
+  Baby.Application.start(:normal)
   ```
 
   One may also craft a custom configuration to be supplied at runtime:
@@ -60,7 +60,7 @@ defmodule Baby.Application do
       end)
 
     opts = [strategy: :one_for_one, name: Baby.Supervisor]
-    Supervisor.start_link(children ++ [Baby.Connection.Registry], opts)
+    Supervisor.start_link(children ++ [Baby.Connection.Registry, Baby.LogWriter], opts)
   end
 
   @doc """
