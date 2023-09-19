@@ -65,9 +65,17 @@ defmodule Baby.Protocol do
   end
 
   def outbound(%{clump_id: clump_id} = conn_info, :HAVE) do
-    clump_id
-    |> Baobab.stored_info()
-    |> encode_replication(conn_info, :HAVE)
+    data =
+      case Map.get(conn_info, :added) do
+        nil ->
+          clump_id
+          |> Baobab.stored_info()
+
+        added ->
+          added
+      end
+
+    encode_replication(data, Map.drop(conn_info, [:added]), :HAVE)
   end
 
   def outbound(%{want: want} = conn_info, :WANT), do: encode_replication(want, conn_info, :WANT)
@@ -229,7 +237,7 @@ defmodule Baby.Protocol do
   end
 
   defp gather_our([], conn_info, todo),
-    do: %{conn_info | shoots: todo |> Enum.sort() |> Enum.uniq()}
+    do: Map.merge(conn_info, %{shoots: Enum.uniq(conn_info.shoots ++ todo)})
 
   # Full logs for author
   defp gather_our([[a] | rest], %{clump_id: clump_id} = conn_info, todo) do

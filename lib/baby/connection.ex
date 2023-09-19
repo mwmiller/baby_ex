@@ -138,6 +138,13 @@ defmodule Baby.Connection do
     {:keep_state, Protocol.outbound(conn_info, :HAVE), []}
   end
 
+  def handle_event(:info, {:added, clump_id, new}, :replicate, conn_info) do
+    case clump_id == conn_info.clump_id do
+      true -> {:keep_state, Protocol.outbound(Map.merge(conn_info, %{added: new}), :HAVE), []}
+      false -> {:keep_state, conn_info, []}
+    end
+  end
+
   # Write out the proto handlers
   for {name, %{type: type, instate: instate, outstate: outstate}} <-
         Protocol.definition() |> Map.to_list() do
