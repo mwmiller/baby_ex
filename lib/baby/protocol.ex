@@ -203,13 +203,12 @@ defmodule Baby.Protocol do
   # fo decides the order for the first element sorted
   # so decides the order for the second element sorted
   # dr decides whether to rotate the list
-  def presort(wants, <<we::1, fo::1, so::1, dr::1, _::bitstring>>) do
+  def presort(wants, <<we::1, fo::1, so::1, _dr::1, _::bitstring>>) do
     {first, second} = which_elem(we)
 
     wants
     |> Enum.sort_by(fn e -> elem(e, first) end, which_order(fo))
     |> Enum.sort_by(fn e -> elem(e, second) end, which_order(so))
-    |> maybe_rotate(dr)
   end
 
   # author then log_id
