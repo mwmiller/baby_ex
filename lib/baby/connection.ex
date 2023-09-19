@@ -145,6 +145,9 @@ defmodule Baby.Connection do
     end
   end
 
+  # Another connection might have stuff we cannot use while not replicating
+  def handle_event(:info, {:added, _, _}, _, conn_info), do: {:keep_state, conn_info, []}
+
   # Write out the proto handlers
   for {name, %{type: type, instate: instate, outstate: outstate}} <-
         Protocol.definition() |> Map.to_list() do
