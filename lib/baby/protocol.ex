@@ -99,7 +99,7 @@ defmodule Baby.Protocol do
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       decoded
       |> ClumpMeta.filter_blocked(new_conn.clump_id)
-      |> want_their(stored_info_map(new_conn.clump_id), conn_info, [])
+      |> want_their(conn_info, [])
       |> outbound(:WANT)
       |> Map.drop([:want])
     else
@@ -168,11 +168,11 @@ defmodule Baby.Protocol do
     end
   end
 
-  defp want_their([], _, conn_info, acc),
+  defp want_their([], conn_info, acc),
     do: Map.merge(conn_info, %{want: sort_wants(acc, conn_info)})
 
-  defp want_their([[a, l, e] | rest], haves, conn_info, acc) do
-    we_have = Map.get(haves, {a, l}, 0)
+  defp want_their([[a, l, e] | rest], %{clump_id: clump_id} = conn_info, acc) do
+    we_have = Baobab.max_seqnum(a, log_id: l, clump_id: clump_id)
 
     add =
       cond do
@@ -184,10 +184,10 @@ defmodule Baby.Protocol do
 
         # caught up, maybe fill in some missing bits this pass
         true ->
-          missing_bits([a, l, e], conn_info.clump_id)
+          missing_bits([a, l, e], clump_id)
       end
 
-    want_their(rest, haves, conn_info, acc ++ add)
+    want_their(rest, conn_info, acc ++ add)
   end
 
   defp sort_wants(want, %{us_fun: uf, send_key: <<sok, _::binary>>}) do
@@ -207,8 +207,9 @@ defmodule Baby.Protocol do
     {first, second} = which_elem(we)
 
     wants
-    |> Enum.sort_by(fn e -> elem(e, first) end, which_order(fo))
-    |> Enum.sort_by(fn e -> elem(e, second) end, which_order(so))
+    |> Enum.sort_by(fn t -> elem(t, first) end, which_order(fo))
+    |> Enum.sort_by(fn t -> elem(t, second) end, which_order(so))
+    |> Enum.sort_by(&tuple_size/1, :asc)
   end
 
   # author then log_id
@@ -220,13 +221,13 @@ defmodule Baby.Protocol do
   defp which_order(1), do: :desc
 
   # Do not "rotate"
-  defp maybe_rotate(list, 0), do: list
+  # defp maybe_rotate(list, 0), do: list
 
   # "rotate" the middle to the front
-  defp maybe_rotate(list, 1) do
-    {front, back} = Enum.split(list, list |> length |> div(2))
-    back ++ front
-  end
+  # defp maybe_rotate(list, 1) do
+  #  {front, back} = Enum.split(list, list |> length |> div(2))
+  #  back ++ front
+  # end
 
   defp missing_bits([a, l, e], clump_id) do
     MapSet.new(1..e)
@@ -235,8 +236,11 @@ defmodule Baby.Protocol do
     |> Enum.map(fn {s, e} -> {a, l, s, e} end)
   end
 
-  defp gather_our([], conn_info, todo),
-    do: Map.merge(conn_info, %{shoots: Enum.uniq(conn_info.shoots ++ todo)})
+  defp gather_our([], %{shoots: shoots} = conn_info, todo) do
+    ns = todo |> Enum.reverse() |> then(fn t -> shoots ++ t end) |> Enum.uniq()
+
+    Map.merge(conn_info, %{shoots: ns})
+  end
 
   # Full logs for author
   defp gather_our([[a] | rest], %{clump_id: clump_id} = conn_info, todo) do
@@ -267,7 +271,7 @@ defmodule Baby.Protocol do
 
   defp gather_our([[a, l, s, e] | rest], conn_info, todo) do
     # Break up large requests which are not full logs
-    case e - s >= 7 do
+    case e - s >= 19 do
       true ->
         m = div(s + e, 2)
         gather_our([[a, l, s, m], [a, l, m + 1, e]] ++ rest, conn_info, todo)
@@ -338,9 +342,4 @@ defmodule Baby.Protocol do
   end
 
   defp enqueue_packet(packet, ci, type), do: %{ci | outbox: ci.outbox ++ [{packet, type}]}
-
-  defp stored_info_map(clump_id) do
-    Baobab.stored_info(clump_id)
-    |> Enum.reduce(%{}, fn {a, l, e}, acc -> Map.put(acc, {a, l}, e) end)
-  end
 end

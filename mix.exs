@@ -4,7 +4,7 @@ defmodule Baby.MixProject do
   def project do
     [
       app: :baby,
-      version: "0.25.2",
+      version: "0.26.0",
       elixir: "~> 1.15",
       name: "Baby",
       source_url: "https://github.com/mwmiller/baby_ex",
