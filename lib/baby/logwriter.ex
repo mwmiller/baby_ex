@@ -31,10 +31,10 @@ defmodule Baby.LogWriter do
      |> report(conn_info, {[], state})}
   end
 
-  defp report([], %{clump_id: clump_id}, {ls, gs}) do
+  defp report([], %{clump_id: clump_id, pid: pid}, {ls, gs}) do
     case ls do
       [] -> :ok
-      new -> Registry.broadcast({:added, clump_id, Enum.reverse(new)})
+      new -> Registry.broadcast({:added, clump_id, Enum.reverse(new)}, [pid])
     end
 
     gs

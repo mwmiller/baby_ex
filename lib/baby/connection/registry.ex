@@ -44,9 +44,11 @@ defmodule Baby.Connection.Registry do
 
   @doc """
   Send a message to all registered connections
+
+  Can include a list of names or pids to exclude
   """
-  def broadcast(message) do
-    GenServer.call(:conn_reg, {:broadcast, message})
+  def broadcast(message, except \\ []) do
+    GenServer.call(:conn_reg, {:broadcast, message, except})
   end
 
   @doc """
@@ -83,10 +85,12 @@ defmodule Baby.Connection.Registry do
     end
   end
 
-  def handle_call({:broadcast, message}, _from, state) do
+  def handle_call({:broadcast, message, except}, _from, state) do
     res =
       state
+      |> Map.drop(except)
       |> Map.values()
+      |> Enum.reject(fn p -> p in except end)
       |> Enum.map(fn pid -> pid_sender(pid, message) end)
 
     {:reply, res, state}
