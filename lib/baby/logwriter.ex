@@ -11,7 +11,7 @@ defmodule Baby.LogWriter do
   end
 
   def init(_args) do
-    {:ok, MapSet.new()}
+    {:ok, %{}}
   end
 
   @doc """
@@ -25,37 +25,37 @@ defmodule Baby.LogWriter do
   end
 
   def handle_cast({:log_it, stuff, conn_info}, state) do
-    {:noreply,
-     stuff
-     |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id, replace: false)
-     |> report(conn_info, {[], state})}
+    stuff
+    |> Baobab.Interchange.import_binaries(clump_id: conn_info.clump_id, replace: false)
+    |> report(conn_info, MapSet.new())
+
+    {:noreply, state}
   end
 
-  defp report([], %{clump_id: clump_id, pid: pid}, {ls, gs}) do
-    case ls do
-      [] -> :ok
-      new -> Registry.broadcast({:added, clump_id, Enum.reverse(new)}, [pid])
+  defp report([], %{clump_id: clump_id, pid: pid}, added) do
+    case MapSet.to_list(added) do
+      [] ->
+        :ok
+
+      new ->
+        Registry.broadcast(
+          {:added, clump_id,
+           Enum.map(new, fn {a, l} ->
+             {a, l, Baobab.max_seqnum(a, log_id: l, clump_id: clump_id)}
+           end)},
+          [pid]
+        )
     end
-
-    gs
   end
 
-  defp report([{:error, reason} | rest], conn_info, acc) do
+  defp report([{:error, reason} | rest], conn_info, added) do
     Util.connection_log(conn_info, :in, "import error: " <> reason, :warning)
-    report(rest, conn_info, acc)
+    report(rest, conn_info, added)
   end
 
-  defp report([%Baobab.Entry{author: a, log_id: l, seqnum: s} | rest], conn_info, {ls, gs} = acc) do
-    new = {Baobab.Identity.as_base62(a), l, s}
-
-    acc =
-      case MapSet.member?(gs, new) do
-        true -> acc
-        false -> {[new | ls], MapSet.put(gs, new)}
-      end
-
-    report(rest, conn_info, acc)
+  defp report([%Baobab.Entry{author: a, log_id: l} | rest], conn_info, added) do
+    report(rest, conn_info, MapSet.put(added, {Baobab.Identity.as_base62(a), l}))
   end
 
-  defp report([_ | rest], conn_info, acc), do: report(rest, conn_info, acc)
+  defp report([_ | rest], conn_info, added), do: report(rest, conn_info, added)
 end
