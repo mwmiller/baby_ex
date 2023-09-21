@@ -4,7 +4,7 @@ defmodule Baby.MixProject do
   def project do
     [
       app: :baby,
-      version: "0.26.0",
+      version: "0.30.0",
       elixir: "~> 1.15",
       name: "Baby",
       source_url: "https://github.com/mwmiller/baby_ex",
@@ -33,6 +33,7 @@ defmodule Baby.MixProject do
       {:cbor, "~> 1.0"},
       {:enacl, "~> 1.2"},
       {:ranch, "~> 1.8"},
+      {:replayq, "~> 0.3.7"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

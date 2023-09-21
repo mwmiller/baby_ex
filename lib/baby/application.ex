@@ -37,8 +37,9 @@ defmodule Baby.Application do
       end
     end
 
-    children =
-      clumps_setup(clumps)
+    per_clump =
+      clumps
+      |> clumps_setup()
       |> Enum.reduce([], fn {port, identity, clump_id, cryouts}, a ->
         # The configured identity must exist
         :ranch.start_listener(
@@ -60,7 +61,11 @@ defmodule Baby.Application do
       end)
 
     opts = [strategy: :one_for_one, name: Baby.Supervisor]
-    Supervisor.start_link(children ++ [Baby.Connection.Registry, Baby.LogWriter], opts)
+
+    Supervisor.start_link(
+      [Baby.Connection.Registry, Baby.Log.Acceptor, Baby.Log.Writer] ++ per_clump,
+      opts
+    )
   end
 
   @doc """

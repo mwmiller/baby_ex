@@ -15,6 +15,7 @@
   "nimble_parsec": {:hex, :nimble_parsec, "1.3.1", "2c54013ecf170e249e9291ed0a62e5832f70a476c61da16f6aac6dca0189f2af", [:mix], [], "hexpm", "2682e3c0b2eb58d90c6375fc0cc30bc7be06f365bf72608804fb9cffa5e1b167"},
   "primacy": {:hex, :primacy, "0.1.0", "c76a2e9a8928ab0713a31dfeb709e3853a0492b5d5764cbb0d86aa392d22b5f1", [:mix], [], "hexpm", "8de0f3b3b4badc459dca3b32c1dc4c00a72cde58d062ea35376eade893e24e6b"},
   "ranch": {:hex, :ranch, "1.8.0", "8c7a100a139fd57f17327b6413e4167ac559fbc04ca7448e9be9057311597a1d", [:make, :rebar3], [], "hexpm", "49fbcfd3682fab1f5d109351b61257676da1a2fdbe295904176d5e521a2ddfe5"},
+  "replayq": {:hex, :replayq, "0.3.7", "79cf74fb646378e13541faedf8e4c75f211b7bd0c2a39bebf66eaf5029aac315", [:rebar3], [], "hexpm", "3fafb5073aa0b92e6ce4f53bc3a7876759ae6bf4b802454dda87dcd5ab5df0b8"},
   "stlv": {:hex, :stlv, "1.0.0", "9cbed432fe35b0c2ca760a0f261bc2565fe68aab362d0ff1095c4d3fb277653e", [:mix], [{:varu64, ">= 0.0.0", [hex: :varu64, repo: "hexpm", optional: false]}], "hexpm", "01e5448bbb88180d71345727019d1400b0a27ca8110907051b2f63b2ac436bea"},
   "varu64": {:hex, :varu64, "1.0.1", "5be91739629b11d9cd0dfa63204e9b461fe4d2d4ad325ad7a2d705daa557237b", [:mix], [], "hexpm", "18b73edfb878813da032140516a669af31f501048d390f0384acbf129379b991"},
   "yamfhash": {:hex, :yamfhash, "1.0.1", "12b3d4bc736887011db5efc2ee02b02ebf1665629080092e3459937bdbd23d8d", [:mix], [{:stlv, ">= 0.0.0", [hex: :stlv, repo: "hexpm", optional: false]}], "hexpm", "6fdcb3b1ea2f53e639ecca70d3c85670fda0e29eaae0863a808865921ba49eb2"},

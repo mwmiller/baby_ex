@@ -1,6 +1,7 @@
 defmodule Baby.Protocol do
   alias Baobab.ClumpMeta
-  alias Baby.{Util, LogWriter}
+  alias Baby.Util
+  alias Baby.Log.Acceptor
 
   @moduledoc """
   Protocol implementation
@@ -120,7 +121,8 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :BAMB) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-      LogWriter.import_their(decoded, new_conn)
+      Acceptor.add_job(decoded, new_conn)
+      new_conn
     else
       e -> Util.log_fatal(conn_info, e)
     end
