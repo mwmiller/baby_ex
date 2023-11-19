@@ -64,7 +64,7 @@ defmodule Baby.Connection do
   defp initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
-    outrate = 500 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+    outrate = 100 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
     max_spins = 100 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
 
     Process.send_after(self(), :outbox, outrate, [])
@@ -83,9 +83,7 @@ defmodule Baby.Connection do
       outrate: outrate,
       wire: <<>>,
       spins: 0,
-      max_spins: max_spins,
-      max_inbox: 1024 * 1024 * 3,
-      max_wire: 1024 * 1024 * 11
+      max_spins: max_spins
     }
   end
 
@@ -191,18 +189,15 @@ defmodule Baby.Connection do
     {:keep_state, %{conn_info | spins: s + 1}, []}
   end
 
-  defp wire_buffer(data, %{inbox: inbox, wire: cw, max_wire: mw, max_inbox: mi} = conn_info) do
+  defp wire_buffer(data, %{pid: pid, inbox: inbox, wire: cw} = conn_info) do
     active_once(conn_info)
     wire = cw <> data
 
     cond do
-      length(inbox) > 10 or Enum.reduce(inbox, 0, fn {_, c}, a -> a + byte_size(c) end) > mi ->
+      length(inbox) > 10 ->
         # Yield
+        Process.send(pid, :inbox, [])
         {:keep_state, %{conn_info | :wire => wire}, []}
-
-      byte_size(wire) > mw ->
-        Util.log_fatal(conn_info, "sending too fast")
-        disconnect(conn_info)
 
       true ->
         case Stlv.decode(wire) do
@@ -210,7 +205,7 @@ defmodule Baby.Connection do
             {:keep_state, %{conn_info | :wire => wire}, []}
 
           {type, value, rest} ->
-            Process.send(conn_info.pid, :inbox, [])
+            Process.send(pid, :inbox, [])
             wire_buffer(rest, %{conn_info | inbox: inbox ++ [{type, value}], wire: <<>>})
 
           _ ->
