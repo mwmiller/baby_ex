@@ -4,8 +4,8 @@ defmodule Baby.MixProject do
   def project do
     [
       app: :baby,
-      version: "0.32.0",
-      elixir: "~> 1.15",
+      version: "0.33.0",
+      elixir: "~> 1.18",
       name: "Baby",
       source_url: "https://github.com/mwmiller/baby_ex",
       start_permanent: Mix.env() == :prod,
@@ -24,7 +24,7 @@ defmodule Baby.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:baobab, "~> 0.30"},
+      {:baobab, "~> 0.31"},
       {:blake2, "~> 1.0"},
       {:primacy, ">= 0.0.0"},
       {:stlv, "~> 1.0"},
