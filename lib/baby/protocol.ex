@@ -34,10 +34,10 @@ defmodule Baby.Protocol do
   def outbound(conn_info, message_type)
 
   def outbound(conn_info, :HELLO) do
-    %{secret: esk, public: epk} = :enacl.box_keypair()
+    {esk, epk} = Kcl.generate_key_pair(:encrypt)
     type = :HELLO
 
-    (conn_info.our_pk <> epk <> :enacl.auth(conn_info.clump_id, epk))
+    (conn_info.our_pk <> epk <> Kcl.auth(epk, conn_info.clump_id))
     |> Stlv.encode(@proto_msg[type])
     |> enqueue_packet(conn_info, type)
     |> Map.merge(%{our_epk: epk, our_esk: esk})
@@ -45,15 +45,15 @@ defmodule Baby.Protocol do
 
   def outbound(conn_info, :AUTH) do
     send_key =
-      :enacl.curve25519_scalarmult(
+      Curve25519.derive_shared_secret(
         conn_info.our_esk,
-        :enacl.crypto_sign_ed25519_public_to_curve25519(conn_info.their_pk)
+        Kcl.sign_to_encrypt(conn_info.their_pk, :public)
       )
       |> Blake2.hash2b(32)
 
     recv_key =
-      :enacl.curve25519_scalarmult(
-        :enacl.crypto_sign_ed25519_secret_to_curve25519(conn_info.our_sk <> conn_info.our_pk),
+      Curve25519.derive_shared_secret(
+        Kcl.sign_to_encrypt(conn_info.our_sk, :secret),
         conn_info.their_epk
       )
       |> Blake2.hash2b(32)
@@ -61,7 +61,7 @@ defmodule Baby.Protocol do
     nci = Map.merge(conn_info, %{:recv_key => recv_key, :send_key => send_key})
 
     (conn_info.clump_id <> recv_key)
-    |> :enacl.sign_detached(conn_info.our_sk <> conn_info.our_pk)
+    |> Kcl.sign(conn_info.our_sk)
     |> pack_and_ship_nonce_box(nci, :AUTH)
   end
 
@@ -132,7 +132,7 @@ defmodule Baby.Protocol do
     with {1, hello} <- data,
          <<their_pk::binary-size(32), their_epk::binary-size(32), hmac::binary-size(32)>> <-
            hello,
-         true <- :enacl.auth_verify(hmac, conn_info.clump_id, their_epk) do
+         true <- Kcl.valid_auth?(hmac, their_epk, conn_info.clump_id) do
       peer = their_pk |> Baobab.Identity.as_base62()
       short_peer = "~" <> (peer |> String.slice(0..6))
 
@@ -149,7 +149,7 @@ defmodule Baby.Protocol do
 
   def inbound(data, conn_info, :AUTH) do
     with {sig, nci} <- unpack_nonce_box(data, conn_info),
-         true <- :enacl.sign_verify_detached(sig, nci.clump_id <> nci.send_key, nci.their_pk),
+         true <- Kcl.valid_signature?(sig, nci.clump_id <> nci.send_key, nci.their_pk),
          false <- ClumpMeta.blocked?(nci.their_pk, conn_info.clump_id) do
       Util.connection_log(conn_info, :both, "connected", :info)
 
@@ -319,12 +319,13 @@ defmodule Baby.Protocol do
         :replay
 
       false ->
-        case :enacl.secretbox_open(box, nonce, conn_info.recv_key) do
-          {:ok, msg} ->
-            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
+        case Kcl.secretunbox(box, nonce, conn_info.recv_key) do
+          :error ->
+            Util.connection_log(conn_info, :in, "unboxing error", :error)
+            :unbox
 
-          e ->
-            Util.log_fatal(conn_info, e)
+          msg ->
+            {msg, %{conn_info | their_nonces: MapSet.put(conn_info.their_nonces, nonce)}}
         end
     end
   end
@@ -338,7 +339,7 @@ defmodule Baby.Protocol do
         wt -> wt
       end
 
-    (nonce <> :enacl.secretbox(msg, nonce, conn_info.send_key))
+    (nonce <> Kcl.secretbox(msg, nonce, conn_info.send_key))
     |> Stlv.encode(@proto_msg[type])
     |> enqueue_packet(conn_info, st)
   end
