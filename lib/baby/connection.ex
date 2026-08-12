@@ -83,7 +83,8 @@ defmodule Baby.Connection do
       outrate: outrate,
       wire: <<>>,
       spins: 0,
-      max_spins: max_spins
+      max_spins: max_spins,
+      synced: false
     }
   end
 
@@ -95,7 +96,13 @@ defmodule Baby.Connection do
     wire_buffer(data, conn_info)
   end
 
-  def handle_event(:info, :outbox, _, %{spins: s, max_spins: ms} = conn_info) when s >= ms do
+  def handle_event(
+        :info,
+        :outbox,
+        _,
+        %{synced: true, spins: s, max_spins: ms} = conn_info
+      )
+      when s >= ms do
     disconnect(conn_info)
   end
 
@@ -179,7 +186,13 @@ defmodule Baby.Connection do
     disconnect(conn_info)
   end
 
-  def handle_event(:info, :inbox, _, %{spins: s, max_spins: ms} = conn_info) when s >= ms do
+  def handle_event(
+        :info,
+        :inbox,
+        _,
+        %{synced: true, spins: s, max_spins: ms} = conn_info
+      )
+      when s >= ms do
     disconnect(conn_info)
   end
 

@@ -122,7 +122,7 @@ defmodule Baby.Protocol do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       Acceptor.add_job(decoded, new_conn)
-      new_conn
+      Map.put(new_conn, :synced, true)
     else
       e -> Util.log_fatal(conn_info, e)
     end
