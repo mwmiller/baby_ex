@@ -220,10 +220,6 @@ defmodule Baby.Connection do
           {type, value, rest} ->
             Process.send(pid, :inbox, [])
             wire_buffer(rest, %{conn_info | inbox: inbox ++ [{type, value}], wire: <<>>})
-
-          _ ->
-            Util.log_fatal(conn_info, "unexpected STLV error")
-            disconnect(conn_info)
         end
     end
   end

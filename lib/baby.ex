@@ -1,5 +1,4 @@
 defmodule Baby do
-  require Logger
   alias Baby.Util
   alias Baby.Connection.Registry
 
