@@ -64,8 +64,8 @@ defmodule Baby.Connection do
   defp initial_conn_info(opts, socket, transport) do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
-    outrate = 100 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
-    max_spins = 100 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
+    outrate = 75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+    max_spins = 1200 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
 
     Process.send_after(self(), :outbox, outrate, [])
 
