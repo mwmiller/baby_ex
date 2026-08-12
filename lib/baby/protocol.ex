@@ -98,12 +98,12 @@ defmodule Baby.Protocol do
   def inbound(data, conn_info, :HAVE) do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
-    decoded
-    |> ClumpMeta.filter_blocked(new_conn.clump_id)
-    |> want_their(conn_info, [])
-    |> mark_synced_if_no_wants()
-    |> outbound(:WANT)
-    |> Map.drop([:want])
+      decoded
+      |> ClumpMeta.filter_blocked(new_conn.clump_id)
+      |> want_their(conn_info, [])
+      |> mark_synced_if_no_wants()
+      |> outbound(:WANT)
+      |> Map.drop([:want])
     else
       e -> Util.log_fatal(conn_info, e)
     end
@@ -123,7 +123,7 @@ defmodule Baby.Protocol do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       Acceptor.add_job(decoded, new_conn)
-      Map.put(new_conn, :synced, true)
+      Map.merge(new_conn, %{synced: true, spins: 0})
     else
       e -> Util.log_fatal(conn_info, e)
     end
@@ -197,7 +197,7 @@ defmodule Baby.Protocol do
   # At least one side is now synced, so start the idle clock.
   # If our peer is too slow to finish its side, we'll drop and retry.
   defp mark_synced_if_no_wants(%{want: []} = conn_info),
-    do: Map.put(conn_info, :synced, true)
+    do: Map.merge(conn_info, %{synced: true, spins: 0})
 
   defp mark_synced_if_no_wants(conn_info), do: conn_info
 
