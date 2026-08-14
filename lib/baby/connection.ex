@@ -66,7 +66,7 @@ defmodule Baby.Connection do
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
 
     outrate =
-      case Keyword.get(opts, :outrate) do
+      case Keyword.get(opts, :outrate) || Application.get_env(:baby, :outrate) do
         n when is_integer(n) and n > 0 -> n
         _ -> 75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
       end

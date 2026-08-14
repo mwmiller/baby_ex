@@ -20,6 +20,28 @@ defmodule Baby.Connection.IdleTest do
       assert idle.bootstrap_spins == 5000
     end
 
+    test "reads budgets from Application config" do
+      Application.put_env(:baby, :max_spins, 777)
+      Application.put_env(:baby, :bootstrap_spins, 888)
+
+      on_exit(fn ->
+        Application.delete_env(:baby, :max_spins)
+        Application.delete_env(:baby, :bootstrap_spins)
+      end)
+
+      idle = Idle.new()
+      assert idle.max_spins == 777
+      assert idle.bootstrap_spins == 888
+    end
+
+    test "per-connection opts take precedence over Application config" do
+      Application.put_env(:baby, :max_spins, 777)
+
+      on_exit(fn -> Application.delete_env(:baby, :max_spins) end)
+
+      assert Idle.new(max_spins: 555).max_spins == 555
+    end
+
     test "ignores invalid budget values and falls back to jittered defaults" do
       idle = Idle.new(max_spins: 0, bootstrap_spins: "lots")
       assert idle.max_spins > 0

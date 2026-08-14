@@ -40,7 +40,14 @@ defmodule Baby.Connection.Idle do
   Both budgets are measured in outbox intervals (i.e. `spins`); multiply by
   the connection's `outrate` for wall-clock time.  By default each is a random
   prime near a nominal value, giving jitter so that many connections do not
-  drop in lockstep.  A consumer may pin them for deterministic behaviour:
+  drop in lockstep.
+
+  Consumers may pin them via Application config, which is read as the source
+  of truth:
+
+      config :baby, max_spins: 1000, bootstrap_spins: 5000
+
+  or per-connection, which takes precedence over the Application config:
 
     * `:max_spins` - budget once the initial sync has completed.
       Defaults to a random prime near 1200.
@@ -58,7 +65,7 @@ defmodule Baby.Connection.Idle do
   end
 
   defp spin_budget(opts, key, near) do
-    case Keyword.get(opts, key) do
+    case Keyword.get(opts, key) || Application.get_env(:baby, key) do
       n when is_integer(n) and n > 0 ->
         n
 
