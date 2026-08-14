@@ -34,13 +34,37 @@ defmodule Baby.Connection.Idle do
           bootstrap_spins: non_neg_integer()
         }
 
-  @doc "A fresh idle timer with randomized budgets."
-  @spec new() :: t()
-  def new do
+  @doc """
+  Create a fresh idle timer.
+
+  Both budgets are measured in outbox intervals (i.e. `spins`); multiply by
+  the connection's `outrate` for wall-clock time.  By default each is a random
+  prime near a nominal value, giving jitter so that many connections do not
+  drop in lockstep.  A consumer may pin them for deterministic behaviour:
+
+    * `:max_spins` - budget once the initial sync has completed.
+      Defaults to a random prime near 1200.
+    * `:bootstrap_spins` - budget while the initial sync is still in
+      progress.  Defaults to a random prime near 3000.
+
+  Example: `Idle.new(max_spins: 1000, bootstrap_spins: 5000)`
+  """
+  @spec new(keyword()) :: t()
+  def new(opts \\ []) do
     %__MODULE__{
-      max_spins: 1200 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random(),
-      bootstrap_spins: 3000 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
+      max_spins: spin_budget(opts, :max_spins, 1200),
+      bootstrap_spins: spin_budget(opts, :bootstrap_spins, 3000)
     }
+  end
+
+  defp spin_budget(opts, key, near) do
+    case Keyword.get(opts, key) do
+      n when is_integer(n) and n > 0 ->
+        n
+
+      _ ->
+        near |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
+    end
   end
 
   @doc """

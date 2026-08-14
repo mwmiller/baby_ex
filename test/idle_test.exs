@@ -12,6 +12,19 @@ defmodule Baby.Connection.IdleTest do
       assert idle.max_spins > 0
       assert idle.bootstrap_spins > idle.max_spins
     end
+
+    test "honours explicitly provided budgets" do
+      idle = Idle.new(max_spins: 1000, bootstrap_spins: 5000)
+
+      assert idle.max_spins == 1000
+      assert idle.bootstrap_spins == 5000
+    end
+
+    test "ignores invalid budget values and falls back to jittered defaults" do
+      idle = Idle.new(max_spins: 0, bootstrap_spins: "lots")
+      assert idle.max_spins > 0
+      assert idle.bootstrap_spins > 0
+    end
   end
 
   describe "expired?/1" do
