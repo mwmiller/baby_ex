@@ -2,7 +2,7 @@ defmodule Baby.Connection do
   @behaviour :gen_statem
   @behaviour :ranch_protocol
   alias Baby.{Protocol, Util}
-  alias Baby.Connection.Registry
+  alias Baby.Connection.{Idle, Registry}
 
   @moduledoc """
   State machine connection handler
@@ -65,7 +65,6 @@ defmodule Baby.Connection do
     identity = Keyword.get(opts, :identity)
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
     outrate = 75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
-    max_spins = 1200 |> Primacy.primes_near(count: 5, dir: :below) |> Enum.random()
 
     Process.send_after(self(), :outbox, outrate, [])
 
@@ -82,9 +81,7 @@ defmodule Baby.Connection do
       outbox: [],
       outrate: outrate,
       wire: <<>>,
-      spins: 0,
-      max_spins: max_spins,
-      synced: false
+      idle: Idle.new()
     }
   end
 
@@ -100,35 +97,48 @@ defmodule Baby.Connection do
         :info,
         :outbox,
         _,
-        %{synced: true, spins: s, max_spins: ms} = conn_info
+        %{idle: %Idle{spins: s, synced: true, max_spins: cap}} = conn_info
       )
-      when s >= ms do
-    disconnect(conn_info)
+      when s >= cap do
+    idle_disconnect(conn_info)
+  end
+
+  # A connection that never reaches :synced (the peer stalled mid-bootstrap)
+  # must still be bounded, or it hangs forever and its registry entry blocks
+  # all future cryouts to that peer.
+  def handle_event(
+        :info,
+        :outbox,
+        _,
+        %{idle: %Idle{spins: s, synced: false, bootstrap_spins: cap}} = conn_info
+      )
+      when s >= cap do
+    idle_disconnect(conn_info)
   end
 
   def handle_event(
         :info,
         :outbox,
         _,
-        %{outbox: [{packet, type} | rest], outrate: rate, pid: pid} = conn_info
+        %{outbox: [{packet, type} | rest], outrate: rate, pid: pid, idle: idle} = conn_info
       ) do
     Util.connection_log(conn_info, :out, type)
     send_packet(packet, conn_info)
     Process.send_after(pid, :outbox, rate)
-    {:keep_state, %{conn_info | outbox: rest}, []}
+    {:keep_state, %{conn_info | outbox: rest, idle: Idle.poke(idle)}, []}
   end
 
-  def handle_event(:info, :outbox, _, %{shoots: shoots, outrate: rate} = conn_info)
+  def handle_event(:info, :outbox, _, %{shoots: shoots, outrate: rate, idle: idle} = conn_info)
       when length(shoots) > 0 do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, rate)
-    {:keep_state, Protocol.outbound(%{conn_info | spins: 0}, :BAMB), []}
+    {:keep_state, Protocol.outbound(%{conn_info | idle: Idle.poke(idle)}, :BAMB), []}
   end
 
-  def handle_event(:info, :outbox, _, %{pid: pid, spins: s, outrate: rate} = conn_info) do
+  def handle_event(:info, :outbox, _, %{pid: pid, outrate: rate, idle: idle} = conn_info) do
     Process.send_after(pid, :outbox, rate)
-    {:keep_state, %{conn_info | spins: s + 1}, []}
+    {:keep_state, %{conn_info | idle: Idle.tick(idle)}, []}
   end
 
   def handle_event(:enter, :hello, :hello, conn_info) do
@@ -169,7 +179,9 @@ defmodule Baby.Connection do
 
         nci ->
           Util.connection_log(nci, :in, unquote(name))
-          {:next_state, unquote(outstate), Map.merge(nci, %{inbox: rest, spins: 0}), []}
+
+          {:next_state, unquote(outstate),
+           Map.merge(nci, %{inbox: rest, idle: Idle.poke(nci.idle)}), []}
       end
     end
   end
@@ -190,16 +202,26 @@ defmodule Baby.Connection do
         :info,
         :inbox,
         _,
-        %{synced: true, spins: s, max_spins: ms} = conn_info
+        %{idle: %Idle{spins: s, synced: true, max_spins: cap}} = conn_info
       )
-      when s >= ms do
-    disconnect(conn_info)
+      when s >= cap do
+    idle_disconnect(conn_info)
+  end
+
+  def handle_event(
+        :info,
+        :inbox,
+        _,
+        %{idle: %Idle{spins: s, synced: false, bootstrap_spins: cap}} = conn_info
+      )
+      when s >= cap do
+    idle_disconnect(conn_info)
   end
 
   # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, %{pid: pid, spins: s} = conn_info) do
+  def handle_event(:info, :inbox, _, %{pid: pid, idle: idle} = conn_info) do
     Process.send(pid, :inbox, [])
-    {:keep_state, %{conn_info | spins: s + 1}, []}
+    {:keep_state, %{conn_info | idle: Idle.tick(idle)}, []}
   end
 
   defp wire_buffer(data, %{pid: pid, inbox: inbox, wire: cw} = conn_info) do
@@ -224,11 +246,27 @@ defmodule Baby.Connection do
     end
   end
 
+  # A synced connection that sat idle past its budget is normal churn --
+  # the next cryout will simply reconnect.
+  defp idle_disconnect(%{idle: %Idle{synced: true}} = conn_info) do
+    disconnect(conn_info, Idle.describe(conn_info.idle), :info)
+  end
+
+  # An unsynced connection that stalled mid-bootstrap is the anomaly we care
+  # about: flag it so a peer repeatedly failing to sync is visible in the logs.
+  defp idle_disconnect(%{idle: idle} = conn_info) do
+    disconnect(conn_info, Idle.describe(idle), :warning)
+  end
+
   defp disconnect(conn_info) do
+    disconnect(conn_info, "disconnected", :info)
+  end
+
+  defp disconnect(conn_info, reason, level) do
     # We don't want to log health check connections
     case Map.has_key?(conn_info, :short_peer) do
       false -> :ok
-      true -> Util.connection_log(conn_info, :both, "disconnected", :info)
+      true -> Util.connection_log(conn_info, :both, reason, level)
     end
 
     {:stop, :normal}

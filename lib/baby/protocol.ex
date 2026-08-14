@@ -1,6 +1,7 @@
 defmodule Baby.Protocol do
   alias Baobab.ClumpMeta
   alias Baby.Util
+  alias Baby.Connection.Idle
   alias Baby.Log.Acceptor
 
   @moduledoc """
@@ -123,7 +124,7 @@ defmodule Baby.Protocol do
     with {cbor, new_conn} <- unpack_nonce_box(data, conn_info),
          {:ok, decoded, ""} <- CBOR.decode(cbor) do
       Acceptor.add_job(decoded, new_conn)
-      Map.merge(new_conn, %{synced: true, spins: 0})
+      Map.merge(new_conn, %{idle: Idle.synced(new_conn.idle)})
     else
       e -> Util.log_fatal(conn_info, e)
     end
@@ -197,7 +198,7 @@ defmodule Baby.Protocol do
   # At least one side is now synced, so start the idle clock.
   # If our peer is too slow to finish its side, we'll drop and retry.
   defp mark_synced_if_no_wants(%{want: []} = conn_info),
-    do: Map.merge(conn_info, %{synced: true, spins: 0})
+    do: Map.merge(conn_info, %{idle: Idle.synced(conn_info.idle)})
 
   defp mark_synced_if_no_wants(conn_info), do: conn_info
 
