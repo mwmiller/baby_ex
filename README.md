@@ -6,11 +6,16 @@ Sync for Bamboo stores using the [Bushbaby protocol](Bushbaby.md)
 
 ## Connection tuning
 
-The per-connection idle timeout is governed by three settings, all read from
-Application config (`config :baby, ...`) at connection startup:
+The per-connection idle timeout is governed by four settings, all read from
+Application config (`config :baby, ...`) at connection startup, and overridable
+per-connection:
 
   * `:outrate` — milliseconds between outbox ticks. Default: a random prime
     near 75 (jittered so connections don't tick in lockstep).
+  * `:handshake_spins` — idle budget, in outbox intervals, before a valid
+    `HELLO` has been received. A connection that never proves itself is
+    dropped quickly so an anonymous flood cannot pin the listener's connection
+    slots. Default: a random prime near 375 (~30s at the default outrate).
   * `:max_spins` — idle budget, in outbox intervals, once the initial
     replication sync has completed. Default: a random prime near 1200.
   * `:bootstrap_spins` — idle budget while the initial sync is still in
@@ -28,6 +33,7 @@ seconds, and a default `bootstrap_spins` of ~2969 is roughly 4 minutes.
 ```elixir
 config :baby,
   outrate: 100,
+  handshake_spins: 375,
   max_spins: 1200,
   bootstrap_spins: 5000
 ```

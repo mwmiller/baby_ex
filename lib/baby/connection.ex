@@ -98,6 +98,20 @@ defmodule Baby.Connection do
     wire_buffer(data, conn_info)
   end
 
+  # A connection that has not yet proven itself with a valid HELLO (no
+  # `short_peer`) gets the tightest budget, so an anonymous flood is dropped
+  # long before it can pin the listener's connection slots.  Legitimate peers
+  # send HELLO on their first outbox tick, so this never fires for them.
+  def handle_event(
+        :info,
+        :outbox,
+        _,
+        %{idle: %Idle{spins: s, handshake_spins: cap}} = conn_info
+      )
+      when s >= cap and not is_map_key(conn_info, :short_peer) do
+    idle_disconnect(conn_info)
+  end
+
   def handle_event(
         :info,
         :outbox,
@@ -207,6 +221,16 @@ defmodule Baby.Connection do
         :info,
         :inbox,
         _,
+        %{idle: %Idle{spins: s, handshake_spins: cap}} = conn_info
+      )
+      when s >= cap and not is_map_key(conn_info, :short_peer) do
+    idle_disconnect(conn_info)
+  end
+
+  def handle_event(
+        :info,
+        :inbox,
+        _,
         %{idle: %Idle{spins: s, synced: true, max_spins: cap}} = conn_info
       )
       when s >= cap do
@@ -254,13 +278,15 @@ defmodule Baby.Connection do
   # A synced connection that sat idle past its budget is normal churn --
   # the next cryout will simply reconnect.
   defp idle_disconnect(%{idle: %Idle{synced: true}} = conn_info) do
-    disconnect(conn_info, Idle.describe(conn_info.idle), :info)
+    disconnect(conn_info, Idle.describe(conn_info.idle, true), :info)
   end
 
-  # An unsynced connection that stalled mid-bootstrap is the anomaly we care
-  # about: flag it so a peer repeatedly failing to sync is visible in the logs.
+  # An unsynced connection that stalled mid-bootstrap (or never completed a
+  # handshake) is the anomaly we care about: flag it so a peer repeatedly
+  # failing to sync is visible in the logs.
   defp idle_disconnect(%{idle: idle} = conn_info) do
-    disconnect(conn_info, Idle.describe(idle), :warning)
+    handshaken? = is_map_key(conn_info, :short_peer)
+    disconnect(conn_info, Idle.describe(idle, handshaken?), :warning)
   end
 
   defp disconnect(conn_info) do

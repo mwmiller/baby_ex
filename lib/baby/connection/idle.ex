@@ -7,8 +7,12 @@ defmodule Baby.Connection.Idle do
   packet or processing an inbound message -- resets the counter, so the budget
   measures *consecutive* silence rather than wall-clock time on a busy link.
 
-  The budget is two-tiered:
+  The budget is three-tiered, shrinking as the connection earns trust:
 
+    * before a valid `HELLO` has been exchanged (`short_peer` is unset) the
+      tight `handshake_spins` budget applies, so an anonymous flood that never
+      completes a handshake is dropped quickly and cannot pin the listener's
+      connection slots.
     * while the initial replication sync has not completed (`synced: false`)
       the generous `bootstrap_spins` budget applies.  A peer may legitimately
       take a while to compute its WANT list, but a peer that stalls entirely
@@ -25,13 +29,15 @@ defmodule Baby.Connection.Idle do
   defstruct spins: 0,
             synced: false,
             max_spins: nil,
-            bootstrap_spins: nil
+            bootstrap_spins: nil,
+            handshake_spins: nil
 
   @type t :: %__MODULE__{
           spins: non_neg_integer(),
           synced: boolean(),
           max_spins: non_neg_integer(),
-          bootstrap_spins: non_neg_integer()
+          bootstrap_spins: non_neg_integer(),
+          handshake_spins: non_neg_integer()
         }
 
   @doc """
@@ -49,6 +55,8 @@ defmodule Baby.Connection.Idle do
 
   or per-connection, which takes precedence over the Application config:
 
+    * `:handshake_spins` - budget before a valid `HELLO` has been received.
+      Defaults to a random prime near 375 (~30s at the default outrate).
     * `:max_spins` - budget once the initial sync has completed.
       Defaults to a random prime near 1200.
     * `:bootstrap_spins` - budget while the initial sync is still in
@@ -60,7 +68,8 @@ defmodule Baby.Connection.Idle do
   def new(opts \\ []) do
     %__MODULE__{
       max_spins: spin_budget(opts, :max_spins, 1200),
-      bootstrap_spins: spin_budget(opts, :bootstrap_spins, 3000)
+      bootstrap_spins: spin_budget(opts, :bootstrap_spins, 3000),
+      handshake_spins: spin_budget(opts, :handshake_spins, 375)
     }
   end
 
@@ -89,15 +98,31 @@ defmodule Baby.Connection.Idle do
   @spec synced(t()) :: t()
   def synced(%__MODULE__{} = idle), do: %{idle | synced: true, spins: 0}
 
-  @doc "The connection has been idle for longer than its budget."
-  @spec expired?(t()) :: boolean()
-  def expired?(%__MODULE__{synced: true, spins: spins, max_spins: cap}), do: spins >= cap
-  def expired?(%__MODULE__{synced: false, spins: spins, bootstrap_spins: cap}), do: spins >= cap
+  @doc """
+  The connection has been idle for longer than its budget.
+
+  `handshaken?` indicates whether a valid `HELLO` has been received, which
+  selects between the pre-handshake and mid-bootstrap budgets for a connection
+  whose initial sync has not yet completed.
+  """
+  @spec expired?(t(), boolean()) :: boolean()
+  def expired?(%__MODULE__{synced: true, spins: spins, max_spins: cap}, _handshaken?),
+    do: spins >= cap
+
+  def expired?(%__MODULE__{synced: false, spins: spins, handshake_spins: cap}, false),
+    do: spins >= cap
+
+  def expired?(%__MODULE__{synced: false, spins: spins, bootstrap_spins: cap}, true),
+    do: spins >= cap
 
   @doc "A human readable summary for logging."
-  @spec describe(t()) :: String.t()
-  def describe(%__MODULE__{} = idle) do
-    cap = if idle.synced, do: idle.max_spins, else: idle.bootstrap_spins
-    "idle timeout (spins #{idle.spins}/#{cap}, synced: #{idle.synced})"
+  @spec describe(t(), boolean()) :: String.t()
+  def describe(%__MODULE__{synced: true} = idle, _handshaken?) do
+    "idle timeout (spins #{idle.spins}/#{idle.max_spins}, synced: true)"
+  end
+
+  def describe(%__MODULE__{} = idle, handshaken?) do
+    cap = if handshaken?, do: idle.bootstrap_spins, else: idle.handshake_spins
+    "idle timeout (spins #{idle.spins}/#{cap}, synced: false)"
   end
 end
