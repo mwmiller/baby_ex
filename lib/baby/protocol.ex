@@ -1,8 +1,8 @@
 defmodule Baby.Protocol do
-  alias Baobab.ClumpMeta
-  alias Baby.Util
   alias Baby.Connection.Idle
   alias Baby.Log.Acceptor
+  alias Baby.Util
+  alias Baobab.ClumpMeta
 
   @moduledoc """
   Protocol implementation
@@ -27,7 +27,7 @@ defmodule Baby.Protocol do
   @doc """
   A map of the protocol definitions
   """
-  def definition(), do: @protodef
+  def definition, do: @protodef
 
   @doc """
   Craft and enqueue an outbound messagei or the provided type from the current connection state

@@ -1,7 +1,7 @@
 defmodule Baby.Log.Writer do
   use GenServer
-  alias Baby.Util
   alias Baby.Log.Acceptor
+  alias Baby.Util
 
   @rest 911
   @moduledoc """

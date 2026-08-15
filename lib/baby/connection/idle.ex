@@ -43,7 +43,7 @@ defmodule Baby.Connection.Idle do
   @doc """
   Create a fresh idle timer.
 
-  Both budgets are measured in outbox intervals (i.e. `spins`); multiply by
+  All budgets are measured in outbox intervals (i.e. `spins`); multiply by
   the connection's `outrate` for wall-clock time.  By default each is a random
   prime near a nominal value, giving jitter so that many connections do not
   drop in lockstep.
@@ -104,6 +104,9 @@ defmodule Baby.Connection.Idle do
   `handshaken?` indicates whether a valid `HELLO` has been received, which
   selects between the pre-handshake and mid-bootstrap budgets for a connection
   whose initial sync has not yet completed.
+
+  This budget selection is mirrored by the idle-disconnect clauses in
+  `Baby.Connection`; keep the two in step when adding tiers.
   """
   @spec expired?(t(), boolean()) :: boolean()
   def expired?(%__MODULE__{synced: true, spins: spins, max_spins: cap}, _handshaken?),

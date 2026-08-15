@@ -8,6 +8,14 @@ defmodule Baby.Connection.Registry do
   `{host, port}`
   where host is an internet address tuple and port is an integer
   """
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker
+    }
+  end
+
   def start_link(_args) do
     GenServer.start_link(__MODULE__, nil, name: :conn_reg)
   end
@@ -54,7 +62,7 @@ defmodule Baby.Connection.Registry do
   @doc """
   Return a list of all named connections
   """
-  def active(), do: GenServer.call(:conn_reg, :active)
+  def active, do: GenServer.call(:conn_reg, :active)
 
   @doc """
   Check if a named connection is active

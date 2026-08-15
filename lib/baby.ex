@@ -1,6 +1,6 @@
 defmodule Baby do
-  alias Baby.Util
   alias Baby.Connection.Registry
+  alias Baby.Util
 
   @moduledoc """
   Bushbaby Automated Bamboo Yields
@@ -46,16 +46,16 @@ defmodule Baby do
   @doc """
   Determine if there is an active connection on a given `{host, port}`
   """
-  def is_connected?({host, port}) when is_tuple(host), do: Registry.active?({host, port})
+  def connected?({host, port}) when is_tuple(host), do: Registry.active?({host, port})
 
-  def is_connected?({host, port}) do
+  def connected?({host, port}) do
     case Util.host_to_ip(host) do
       :error -> false
-      ip -> is_connected?({ip, port})
+      ip -> connected?({ip, port})
     end
   end
 
-  def is_connected?(_), do: false
+  def connected?(_), do: false
 
   @doc """
   Determine if there is an active connection on an array of `{host, port}`
@@ -71,6 +71,6 @@ defmodule Baby do
   defp check_connections([], acc), do: acc
 
   defp check_connections([pair | rest], acc) do
-    check_connections(rest, Map.put(acc, pair, is_connected?(pair)))
+    check_connections(rest, Map.put(acc, pair, connected?(pair)))
   end
 end

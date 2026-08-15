@@ -27,7 +27,7 @@ defmodule Baby.Log.Acceptor do
     GenServer.cast(:log_acceptor, {:add_it, data, conn_info})
   end
 
-  def next_job() do
+  def next_job do
     GenServer.call(:log_acceptor, :get_it)
   end
 

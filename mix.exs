@@ -11,6 +11,7 @@ defmodule Baby.MixProject do
       start_permanent: Mix.env() == :prod,
       description: description(),
       package: package(),
+      aliases: aliases(),
       deps: deps()
     ]
   end
@@ -18,6 +19,21 @@ defmodule Baby.MixProject do
   def application do
     [
       extra_applications: [:logger, :ranch]
+    ]
+  end
+
+  def cli do
+    [preferred_envs: [precommit: :test]]
+  end
+
+  defp aliases do
+    [
+      precommit: [
+        "format --check-formatted",
+        "compile --warnings-as-errors --force",
+        "credo --strict",
+        "test"
+      ]
     ]
   end
 
@@ -34,6 +50,7 @@ defmodule Baby.MixProject do
       {:cbor, "~> 1.0"},
       {:ranch, "~> 1.8"},
       {:replayq, "~> 0.3.7"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

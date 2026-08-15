@@ -40,12 +40,14 @@ defmodule Baby.Application do
     per_clump =
       clumps
       |> clumps_setup()
-      |> Enum.reduce([], fn {port, identity, clump_id, cryouts, max_connections}, a ->
+      |> Enum.reduce([], fn clump, a ->
+        %{port: port, identity: identity, clump_id: clump_id, cryouts: cryouts} = clump
+
         # The configured identity must exist
         :ranch.start_listener(
           String.to_atom("baby_" <> clump_id),
           :ranch_tcp,
-          [port: port, max_connections: max_connections],
+          [port: port, max_connections: clump.max_connections],
           Baby.Connection,
           identity: identity,
           clump_id: clump_id
@@ -93,10 +95,17 @@ defmodule Baby.Application do
     end
 
     clump_id = Keyword.get(clump, :id)
-    port = Keyword.get(clump, :port, 8483)
-    cryouts = Keyword.get(clump, :cryouts, [])
     max_connections = max_connections(clump)
-    clumps_setup(rest, [{port, whoami, clump_id, cryouts, max_connections} | acc])
+
+    setup = %{
+      port: Keyword.get(clump, :port, 8483),
+      identity: whoami,
+      clump_id: clump_id,
+      cryouts: Keyword.get(clump, :cryouts, []),
+      max_connections: max_connections
+    }
+
+    clumps_setup(rest, [setup | acc])
   end
 
   defp max_connections(clump) do

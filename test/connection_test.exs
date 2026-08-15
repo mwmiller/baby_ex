@@ -7,7 +7,7 @@ defmodule Baby.ConnectionTest do
   @default_wire_cap 32 * 1024 * 1024
 
   setup_all do
-    start_supervised!({Baby.Connection.Registry, {Baby.Connection.Registry, :start_link, [[]]}})
+    start_supervised!(Baby.Connection.Registry)
     Baobab.Identity.create("connection_test")
     :ok
   end

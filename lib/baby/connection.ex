@@ -1,15 +1,15 @@
 defmodule Baby.Connection do
   @behaviour :gen_statem
   @behaviour :ranch_protocol
-  alias Baby.{Protocol, Util}
   alias Baby.Connection.{Idle, Registry}
+  alias Baby.{Protocol, Util}
 
   @moduledoc """
   State machine connection handler
   """
 
   @impl true
-  def callback_mode(), do: [:handle_event_function, :state_enter]
+  def callback_mode, do: [:handle_event_function, :state_enter]
 
   def child_spec(opts) do
     %{
@@ -66,16 +66,13 @@ defmodule Baby.Connection do
     clump_id = Keyword.get(opts, :clump_id, "Quagga")
 
     outrate =
-      case Keyword.get(opts, :outrate) || Application.get_env(:baby, :outrate) do
-        n when is_integer(n) and n > 0 -> n
-        _ -> 75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
-      end
+      int_setting(
+        opts,
+        :outrate,
+        75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
+      )
 
-    wire_cap =
-      case Keyword.get(opts, :wire_cap) || Application.get_env(:baby, :wire_cap) do
-        n when is_integer(n) and n > 0 -> n
-        _ -> 32 * 1024 * 1024
-      end
+    wire_cap = int_setting(opts, :wire_cap, 32 * 1024 * 1024)
 
     Process.send_after(self(), :outbox, outrate, [])
 
@@ -97,6 +94,16 @@ defmodule Baby.Connection do
     }
   end
 
+  # Resolve a positive-integer connection setting from per-connection opts,
+  # falling back to Application config (`config :baby, ...`) and finally to
+  # the supplied default.
+  defp int_setting(opts, key, default) do
+    case Keyword.get(opts, key) || Application.get_env(:baby, key) do
+      n when is_integer(n) and n > 0 -> n
+      _ -> default
+    end
+  end
+
   # Generic TCP handling stuff. Non-state dependant
   @impl true
   def handle_event(:info, {:tcp_closed, _socket}, _, conn_info), do: disconnect(conn_info)
@@ -109,6 +116,10 @@ defmodule Baby.Connection do
   # `short_peer`) gets the tightest budget, so an anonymous flood is dropped
   # long before it can pin the listener's connection slots.  Legitimate peers
   # send HELLO on their first outbox tick, so this never fires for them.
+  #
+  # NOTE: this clause MUST precede the synced/bootstrap clauses below -- a
+  # pre-handshake connection also has `synced: false`, so the handshake
+  # budget would never be consulted if this clause came later.
   def handle_event(
         :info,
         :outbox,
@@ -155,7 +166,7 @@ defmodule Baby.Connection do
   end
 
   def handle_event(:info, :outbox, _, %{shoots: shoots, outrate: rate, idle: idle} = conn_info)
-      when length(shoots) > 0 do
+      when shoots != [] do
     # We have a non-empty shoots list
     # Yeah, this is unsatisfyingly written
     Process.send_after(conn_info.pid, :outbox, rate)
@@ -224,6 +235,9 @@ defmodule Baby.Connection do
     disconnect(conn_info)
   end
 
+  # As with the :outbox clauses above, this handshake clause MUST precede the
+  # synced/bootstrap clauses below, or the pre-handshake budget would never
+  # be consulted for connections that have not completed a valid HELLO.
   def handle_event(
         :info,
         :inbox,
@@ -270,19 +284,24 @@ defmodule Baby.Connection do
       byte_size(wire) > cap ->
         # A single frame larger than this can only mean the peer is sending
         # undecodable garbage (or a frame length it can never honour), so drop
-        # the connection rather than let `wire` grow without bound.
-        Util.log_fatal(conn_info, "wire buffer exceeded #{cap} bytes")
+        # the connection rather than let `wire` grow without bound.  Anonymous
+        # connections are presumed hostile until authenticated, so their drops
+        # stay silent to avoid log spam under a flood.
+        if is_map_key(conn_info, :short_peer) do
+          Util.log_fatal(conn_info, "wire buffer exceeded #{cap} bytes")
+        end
+
         disconnect(conn_info)
 
       length(inbox) > 10 ->
         # Yield
         Process.send(pid, :inbox, [])
-        {:keep_state, %{conn_info | :wire => wire}, []}
+        {:keep_state, %{conn_info | wire: wire}, []}
 
       true ->
         case Stlv.decode(wire) do
           :error ->
-            {:keep_state, %{conn_info | :wire => wire}, []}
+            {:keep_state, %{conn_info | wire: wire}, []}
 
           {type, value, rest} ->
             Process.send(pid, :inbox, [])
