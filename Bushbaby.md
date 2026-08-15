@@ -177,6 +177,8 @@ Each sub-array should be of length 1-4, indicating:
 
 This message type contains an array of Bamboo objects.  Each array element should be entry data concatenated with the payload.  There is no specific requirement on how to order these arrays or group them into protocol packets.  It is, however, worth noting that each element will require peer verification.  Providing them in individual "chain groups" ordered from lowest to highest sequence number facilitates the easiest management.  Therefore this makes it the most likely that the peer will accept and propagate the log.
 
+Nodes authoring log data should be cautious about the size of the entries they create.  The protocol itself imposes no limit on packet size, but receiving peers may do so as a defensive measure and are entitled to drop connections whose traffic exceeds those limits.  Because there is no partial replication of an individual entry, a single oversized log entry can render its entire containing log unreplicable to any peer whose limits are stricter than the entry requires.  An author who wishes to propagate a very large payload should therefore consider splitting it across multiple log entries, each of which can then be replicated on its own.
+
 ##### Packet creation
 
 - Obtain an array of the binary form of log data `bamboo_data`:
@@ -193,6 +195,8 @@ This message type contains an array of Bamboo objects.  Each array element shoul
 ### Peering Notes
 
 It is worth noting, once again, that there is no request/response cycle in the protocol. Each message stands on its own. This might lead to deadlocks between ill-behaved peers.  Limits should be implemented to close connections which do not seem to be advancing propagation.
+
+Peers may likewise impose limits on the size of packets they are willing to accept, closing any connection which exceeds them.  Such limits are an operational matter for the node operator, not a protocol-level concern.  Log data which cannot fit within a peer's limits will simply not be replicated to that peer; see the BAMBOO section for guidance on authoring entries that will not run afoul of such limits.
 
 It is also likely advantageous for a node to maintain information about the behavior of its peers. Such information can help determine appropriate handling of future connections and messages. 
 
