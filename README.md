@@ -52,3 +52,17 @@ The cap sits comfortably above the largest legitimate frame (a single message
 may carry an entire log), so it should only trip for garbage; note the
 [protocol spec](Bushbaby.md) guidance on authoring log entries that fit within
 peers' limits.
+
+## Listener
+
+The ranch listener that accepts peer connections has a deliberate ceiling on
+concurrent connections, so a flood of anonymous connections cannot exhaust
+file descriptors or slot-bound the legitimate peer:
+
+  * `:max_connections` — maximum concurrent connections accepted per listener.
+    Read from Application config (`config :baby, max_connections: ...`) at
+    startup, overridable per-clump. Default: 256 (ranch's own default is 1024).
+
+```elixir
+config :baby, max_connections: 256
+```

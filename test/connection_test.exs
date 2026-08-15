@@ -1,5 +1,6 @@
 defmodule Baby.ConnectionTest do
   use ExUnit.Case
+  import ExUnit.CaptureLog
 
   alias Baby.Connection
 
@@ -51,10 +52,13 @@ defmodule Baby.ConnectionTest do
       # A frame declaring a huge length, followed by garbage that can never
       # complete it: the buffer grows past the cap and the connection drops.
       garbage = Varu64.encode(5) <> Varu64.encode(1_000_000) <> :binary.copy(<<0>>, 2048)
-      :ok = :gen_tcp.send(sock, garbage)
 
-      ref = Process.monitor(pid)
-      assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
+      capture_log(fn ->
+        :ok = :gen_tcp.send(sock, garbage)
+
+        ref = Process.monitor(pid)
+        assert_receive {:DOWN, ^ref, :process, _, :normal}, 1_000
+      end)
     end
   end
 
