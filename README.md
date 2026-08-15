@@ -37,3 +37,18 @@ config :baby,
   max_spins: 1200,
   bootstrap_spins: 5000
 ```
+
+## Wire buffer
+
+Inbound bytes that have not yet formed a complete protocol frame are buffered
+in the connection's `wire` state. A peer that dribbles undecodable bytes could
+otherwise grow this buffer without bound, so it is capped:
+
+  * `:wire_cap` — maximum buffered bytes per connection before the connection
+    is dropped. Read from Application config (`config :baby, wire_cap: ...`)
+    at connection startup, overridable per-connection. Default: 32MB.
+
+The cap sits comfortably above the largest legitimate frame (a single message
+may carry an entire log), so it should only trip for garbage; note the
+[protocol spec](Bushbaby.md) guidance on authoring log entries that fit within
+peers' limits.

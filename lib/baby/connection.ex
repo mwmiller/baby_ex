@@ -71,6 +71,12 @@ defmodule Baby.Connection do
         _ -> 75 |> Primacy.primes_near(count: 10, dir: :above) |> Enum.random()
       end
 
+    wire_cap =
+      case Keyword.get(opts, :wire_cap) || Application.get_env(:baby, :wire_cap) do
+        n when is_integer(n) and n > 0 -> n
+        _ -> 32 * 1024 * 1024
+      end
+
     Process.send_after(self(), :outbox, outrate, [])
 
     %{
@@ -86,6 +92,7 @@ defmodule Baby.Connection do
       outbox: [],
       outrate: outrate,
       wire: <<>>,
+      wire_cap: wire_cap,
       idle: Idle.new(opts)
     }
   end
@@ -253,11 +260,18 @@ defmodule Baby.Connection do
     {:keep_state, %{conn_info | idle: Idle.tick(idle)}, []}
   end
 
-  defp wire_buffer(data, %{pid: pid, inbox: inbox, wire: cw} = conn_info) do
+  defp wire_buffer(data, %{pid: pid, inbox: inbox, wire: cw, wire_cap: cap} = conn_info) do
     active_once(conn_info)
     wire = cw <> data
 
     cond do
+      byte_size(wire) > cap ->
+        # A single frame larger than this can only mean the peer is sending
+        # undecodable garbage (or a frame length it can never honour), so drop
+        # the connection rather than let `wire` grow without bound.
+        Util.log_fatal(conn_info, "wire buffer exceeded #{cap} bytes")
+        disconnect(conn_info)
+
       length(inbox) > 10 ->
         # Yield
         Process.send(pid, :inbox, [])
