@@ -254,9 +254,11 @@ defmodule Baby.Connection do
     idle_disconnect(conn_info)
   end
 
-  # We might be out of sync, so we'll just go around again
-  def handle_event(:info, :inbox, _, %{pid: pid, idle: idle} = conn_info) do
-    Process.send(pid, :inbox, [])
+  # We might be out of sync, so we'll just go around again.  Re-schedule on
+  # the outbox cadence rather than re-sending immediately: an empty inbox must
+  # not busy-loop the process at CPU speed until the idle budget expires it.
+  def handle_event(:info, :inbox, _, %{pid: pid, outrate: rate, idle: idle} = conn_info) do
+    Process.send_after(pid, :inbox, rate)
     {:keep_state, %{conn_info | idle: Idle.tick(idle)}, []}
   end
 
