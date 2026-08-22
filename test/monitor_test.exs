@@ -1,6 +1,8 @@
 defmodule Baby.MonitorTest do
   use ExUnit.Case, async: false
 
+  alias Baby.Monitor
+
   # Exercises the "meta cryout" wiring: an `mdns:` cryout browses instead of
   # dialing, finds nothing here (nothing is announced), and reschedules.
   # Two cycles must elapse inside the sleep window, proving the mdns branch
@@ -27,6 +29,22 @@ defmodule Baby.MonitorTest do
     Process.sleep(2400)
 
     assert Process.alive?(monitor)
+  end
+
+  describe "next_delay_ms/1" do
+    test "unconfigured mdns cryouts cycle about once a minute" do
+      delay = Monitor.next_delay_ms(mdns: true)
+      assert delay >= 40_000 and delay <= 80_000
+    end
+
+    test "explicit periods are honored exactly, wherever given" do
+      assert Monitor.next_delay_ms(mdns: [period: {2, :second}]) == 2000
+      assert Monitor.next_delay_ms(period: {3, :minute}, mdns: true) == 180_000
+    end
+
+    test "fixed-host cryouts keep the long default" do
+      assert Monitor.next_delay_ms(host: "elsewhere", port: 8484) == 1_020_000
+    end
   end
 
   defp spawned_by_us?(pid) do

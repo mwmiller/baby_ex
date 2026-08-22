@@ -12,7 +12,18 @@ defmodule Baby.Monitor do
   rather than dialing a fixed `{host, port}`, we periodically browse
   the local network for announced peers of our clump (see
   `Baby.Mdns`) and connect to whatever we see there.
+
+  An unconfigured meta cryout cycles about once a minute -- each
+  interval a random prime number of seconds near 60 -- giving jitter
+  so that many peers do not browse in lockstep; an explicit `period`
+  is honored exactly.
   """
+
+  # Fixed-host peers are relatively static, so an infrequent revisit
+  # suffices; discovered peers come and go, so meta cryouts check in
+  # far more often
+  @default_period {17, :minute}
+  @mdns_nominal 60
 
   def start_link(opts) when is_map(opts) do
     children = [
@@ -53,9 +64,9 @@ defmodule Baby.Monitor do
     end
 
     # We get inherent jitter via the connection spin up
-    next_start = Util.period_to_ms(period(opts))
+    next_start = next_delay_ms(opts)
 
-    Process.send_after(self(), {:cryout, opts}, next_start, [])
+    Process.send_after(self(), {:cryout, opts}, next_start)
     {:noreply, state}
   end
 
@@ -76,10 +87,29 @@ defmodule Baby.Monitor do
     end
   end
 
-  # A cryout's period comes from its own top level, from within a meta
-  # cryout's options, or falls back to the default
-  defp period(opts),
-    do: Keyword.get(opts, :period) || meta_period(Keyword.get(opts, :mdns)) || {17, :minute}
+  # Milliseconds until this cryout should fire again: an explicitly
+  # configured `period` (at the cryout's top level or within its
+  # `mdns` options) wins; otherwise fixed-host cryouts fall back to
+  # their long default and meta cryouts to about a minute of prime-
+  # numbered seconds
+  @doc false
+  def next_delay_ms(opts) do
+    case Keyword.get(opts, :period) || meta_period(Keyword.get(opts, :mdns)) do
+      nil -> fallback_delay_ms(opts)
+      period -> Util.period_to_ms(period)
+    end
+  end
+
+  defp fallback_delay_ms(opts) do
+    if Keyword.has_key?(opts, :mdns) do
+      @mdns_nominal
+      |> Primacy.primes_near(count: 10)
+      |> Enum.random()
+      |> Kernel.*(1000)
+    else
+      Util.period_to_ms(@default_period)
+    end
+  end
 
   defp meta_period(nil), do: nil
   defp meta_period(meta) when is_list(meta), do: Keyword.get(meta, :period)

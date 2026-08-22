@@ -87,7 +87,9 @@ Per-clump configuration (`config :baby, clumps: [...]`):
     `{host, port}`, the monitor periodically browses the local network and
     connects to every discovered peer of the same clump it isn't already
     talking to. A `period` may be given either at the cryout's top level or
-    inside the `mdns` options; default: `{17, :minute}`.
+    inside the `mdns` options; unconfigured meta cryouts cycle about once a
+    minute (a random prime number of seconds near 60, so many peers do not
+    browse in lockstep), while fixed-host cryouts default to `{17, :minute}`.
 
 ```elixir
 config :baby,
