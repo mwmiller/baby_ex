@@ -13,10 +13,15 @@ defmodule Baby do
       - `id`: a binary `clump_id`
       - `controlling_identity`: a `Baobab.Identity` by which this peer will be known
       - `port`: an integer port to which to bind
+      - `announce`: `true` (or `Baby.Mdns.announce/3` options) to make this
+        clump visible to local network peers via mDNS
       - `cryouts`: list of keyword configurations for periodic peer replication
           - `host`: peer host address
           - `port`: peer port
           - `period`: `{integer quantity, atom unit}` ({17, :minute})
+          - `mdns`: `true` (or keyword options incl. `period`) for a "meta
+            cryout" that discovers and dials clump-mates seen on the local
+            network instead of a fixed host
   """
 
   @doc """

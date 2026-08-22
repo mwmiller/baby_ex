@@ -66,3 +66,42 @@ file descriptors or slot-bound the legitimate peer:
 ```elixir
 config :baby, max_connections: 256
 ```
+
+## Local network discovery (mDNS)
+
+Clumps can advertise themselves to peers on the local network and can find
+those peers without statically configured addresses. This is built on
+[`mdns_lite`](https://hex.pm/packages/mdns_lite), which is started
+automatically when any clump needs it. Services are advertised as standard
+`_bushbaby._tcp` DNS-SD records whose TXT payload carries the announcing
+clump's `clump_id`, so they are visible to any mDNS tooling
+(`dns-sd`, Avahi, etc.), not just other `Baby` nodes.
+
+Per-clump configuration (`config :baby, clumps: [...]`):
+
+  * `announce` — `true` advertises this clump's listener via mDNS; a keyword
+    list of `Baby.Mdns.announce/3` options (e.g. `instance:`) customizes the
+    advertisement. Default: `false`.
+  * Within a `cryouts` entry, `mdns:` — `true` (or keyword options) turns
+    that cryout into a "meta cryout": instead of dialing a fixed
+    `{host, port}`, the monitor periodically browses the local network and
+    connects to every discovered peer of the same clump it isn't already
+    talking to. A `period` may be given either at the cryout's top level or
+    inside the `mdns` options; default: `{17, :minute}`.
+
+```elixir
+config :baby,
+  clumps: [
+    [
+      id: "Quagga",
+      controlling_identity: my_identity,
+      port: 8483,
+      announce: true,
+      cryouts: [[mdns: [period: {5, :minute}]]]
+    ]
+  ]
+```
+
+Because discovery re-runs on every meta-cryout cycle, clump-mates that come
+and go are picked up (and re-dialed) automatically, exactly as fixed-host
+cryouts re-establish dropped connections.

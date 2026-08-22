@@ -48,6 +48,7 @@ defmodule Baby.MixProject do
       {:kcl, "~> 1.5"},
       # Third-party
       {:cbor, "~> 1.0"},
+      {:mdns_lite, "~> 0.9"},
       {:ranch, "~> 1.8"},
       {:replayq, "~> 0.3.7"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

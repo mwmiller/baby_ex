@@ -40,8 +40,15 @@ defmodule Baby.Application do
     per_clump =
       clumps
       |> clumps_setup()
+      |> tap(&maybe_start_mdns_lite/1)
       |> Enum.reduce([], fn clump, a ->
-        %{port: port, identity: identity, clump_id: clump_id, cryouts: cryouts} = clump
+        %{
+          port: port,
+          identity: identity,
+          clump_id: clump_id,
+          cryouts: cryouts,
+          announce: announce
+        } = clump
 
         # The configured identity must exist
         :ranch.start_listener(
@@ -53,9 +60,12 @@ defmodule Baby.Application do
           clump_id: clump_id
         )
 
+        maybe_announce(announce, clump_id, port)
+
         [
           Supervisor.child_spec(
-            {Baby.Monitor, %{cryouts: cryouts, identity: identity, clump_id: clump_id}},
+            {Baby.Monitor,
+             %{cryouts: cryouts, identity: identity, clump_id: clump_id, port: port}},
             id: String.to_atom(clump_id)
           )
           | a
@@ -102,11 +112,33 @@ defmodule Baby.Application do
       identity: whoami,
       clump_id: clump_id,
       cryouts: Keyword.get(clump, :cryouts, []),
+      announce: Keyword.get(clump, :announce, false),
       max_connections: max_connections
     }
 
     clumps_setup(rest, [setup | acc])
   end
+
+  # The mDNS stack is only started when a clump wants to be visible or
+  # to find peers via a meta cryout
+  defp maybe_start_mdns_lite(clumps) do
+    mdns? = Enum.any?(clumps, fn c -> c.announce != false or mdns_cryout?(c.cryouts) end)
+
+    if mdns?, do: {:ok, _} = Application.ensure_all_started(:mdns_lite)
+
+    :ok
+  end
+
+  defp mdns_cryout?(cryouts), do: Enum.any?(cryouts, &Keyword.has_key?(&1, :mdns))
+
+  # `announce` may be `true` or a keyword list of `Baby.Mdns.announce/3`
+  # options
+  defp maybe_announce(false, _, _), do: :ok
+
+  defp maybe_announce(announce, clump_id, port) when is_list(announce),
+    do: Baby.Mdns.announce(clump_id, port, announce)
+
+  defp maybe_announce(_, clump_id, port), do: Baby.Mdns.announce(clump_id, port)
 
   defp max_connections(clump) do
     case Keyword.get(clump, :max_connections) || Application.get_env(:baby, :max_connections) do
