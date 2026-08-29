@@ -54,7 +54,8 @@ defmodule Baby.Application do
         :ranch.start_listener(
           String.to_atom("baby_" <> clump_id),
           :ranch_tcp,
-          [port: port, max_connections: clump.max_connections],
+          [port: port],
+          [max_connections: clump.max_connections],
           Baby.Connection,
           identity: identity,
           clump_id: clump_id
