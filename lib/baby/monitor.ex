@@ -26,33 +26,51 @@ defmodule Baby.Monitor do
   @mdns_nominal 60
 
   def start_link(opts) when is_map(opts) do
-    children = [
-      {DynamicSupervisor, strategy: :one_for_one, name: Baby.Monitor.DynamicSupervisor}
-    ]
-
-    Supervisor.start_link(children, strategy: :one_for_one)
     GenServer.start_link(__MODULE__, opts)
   end
 
   @impl true
   def init(%{cryouts: cryouts} = state) do
+    # This monitor owns the supervisor its cryouts spawn connections under.
+    # It is deliberately unnamed and per-monitor, so any number of clumps can
+    # each get their own; the link makes the batch of spawned peers die with
+    # us (see terminate/2 for the graceful half of that pairing).
+    {:ok, conns_sup} = DynamicSupervisor.start_link(strategy: :one_for_one)
+
     for peer <- cryouts do
       Process.send_after(self(), {:cryout, peer}, :rand.uniform(3000), [])
     end
 
-    {:ok, state}
+    {:ok, Map.put(state, :conns_sup, conns_sup)}
   end
 
   @impl true
-  def handle_info({:cryout, opts}, %{identity: id, clump_id: clump, port: our_port} = state) do
+  def terminate(_reason, %{conns_sup: conns_sup}) do
+    # The link already covers the crash path; this covers a graceful stop.
+    # Guard in case the supervisor already exhausted its own restarts and
+    # died, so terminate cannot raise on a dead pid.
+    if Process.alive?(conns_sup) do
+      Supervisor.stop(conns_sup, :normal, 5000)
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
+  @impl true
+  def handle_info(
+        {:cryout, opts},
+        %{identity: id, clump_id: clump, port: our_port, conns_sup: conns_sup} = state
+      ) do
     if Keyword.has_key?(opts, :mdns) do
-      discover(clump, id, our_port)
+      discover(conns_sup, clump, id, our_port)
     else
       host = Keyword.get(opts, :host)
       Logger.info(["Crying out to ", host])
 
       DynamicSupervisor.start_child(
-        Baby.Monitor.DynamicSupervisor,
+        conns_sup,
         {Baby.Connection,
          [
            host: Util.host_to_ip(host),
@@ -73,7 +91,7 @@ defmodule Baby.Monitor do
   # Connect to every discovered clump-mate that we aren't already
   # talking to.  The connection registry keeps repeat browses from
   # stacking duplicate connections.
-  defp discover(clump_id, identity, our_port) do
+  defp discover(conns_sup, clump_id, identity, our_port) do
     found = Baby.Mdns.peers(clump_id, port: our_port)
 
     for %{ip: ip, port: port} <- found,
@@ -81,7 +99,7 @@ defmodule Baby.Monitor do
       Logger.info(["Crying out to discovered ", :inet.ntoa(ip), ":", Integer.to_string(port)])
 
       DynamicSupervisor.start_child(
-        Baby.Monitor.DynamicSupervisor,
+        conns_sup,
         {Baby.Connection, [host: ip, port: port, identity: identity, clump_id: clump_id]}
       )
     end

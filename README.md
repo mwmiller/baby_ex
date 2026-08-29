@@ -67,6 +67,12 @@ file descriptors or slot-bound the legitimate peer:
 config :baby, max_connections: 256
 ```
 
+A clump whose configured port is already in use fails the whole application
+start with `{:error, reason}` (typically `:eaddrinuse`) rather than silently
+running without that listener. Listeners that did bind before the failure --
+and any mDNS announcements they made -- are rolled back, so retrying the
+same configuration succeeds once the port is freed.
+
 ## Local network discovery (mDNS)
 
 Clumps can advertise themselves to peers on the local network and can find
@@ -107,3 +113,8 @@ config :baby,
 Because discovery re-runs on every meta-cryout cycle, clump-mates that come
 and go are picked up (and re-dialed) automatically, exactly as fixed-host
 cryouts re-establish dropped connections.
+
+Each clump runs its own monitor and its own dynamic supervisor for the
+connections its cryouts spawn. Clumps are therefore independent -- a failing
+clump does not disturb its siblings -- and tearing a monitor down (on a
+clump's stop or crash) takes its spawned connections with it.

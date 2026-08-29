@@ -1,12 +1,14 @@
 defmodule Baby.MdnsTest do
   use ExUnit.Case, async: false
-
+  import ExUnit.CaptureLog
   import MdnsLite.DNS
 
   alias Baby.Mdns
 
   setup_all do
-    {:ok, _} = Application.ensure_all_started(:mdns_lite)
+    # mdns_lite logs it chose en0/utun, etc. on startup; keep that out of the
+    # test runner's output
+    {{:ok, _}, _} = with_log(fn -> Application.ensure_all_started(:mdns_lite) end)
     :ok
   end
 
@@ -135,30 +137,34 @@ defmodule Baby.MdnsTest do
       port_a = ephemeral_port()
       port_b = ephemeral_port()
 
-      :ok = Mdns.announce("MdnsTestClump", port_a, instance: "mdns-test-a")
-      :ok = Mdns.announce("OtherClump", port_b, instance: "mdns-test-b")
+      # Announcing and browsing are intentionally noisy; the assertions all
+      # operate on the results, so fold the Logger.info chatter away
+      capture_log(fn ->
+        :ok = Mdns.announce("MdnsTestClump", port_a, instance: "mdns-test-a")
+        :ok = Mdns.announce("OtherClump", port_b, instance: "mdns-test-b")
 
-      browse_opts = [timeout: 1500]
-      found = Mdns.browse(browse_opts)
+        browse_opts = [timeout: 1500]
+        found = Mdns.browse(browse_opts)
 
-      a = Enum.find(found, &(&1.instance == "mdns-test-a"))
-      b = Enum.find(found, &(&1.instance == "mdns-test-b"))
+        a = Enum.find(found, &(&1.instance == "mdns-test-a"))
+        b = Enum.find(found, &(&1.instance == "mdns-test-b"))
 
-      assert %{port: ^port_a, txt: %{"clump_id" => "MdnsTestClump"}} = a
-      assert %{port: ^port_b, txt: %{"clump_id" => "OtherClump"}} = b
+        assert %{port: ^port_a, txt: %{"clump_id" => "MdnsTestClump"}} = a
+        assert %{port: ^port_b, txt: %{"clump_id" => "OtherClump"}} = b
 
-      # Peer selection filters on clump and drops ourselves (port_a is
-      # ours), leaving no other MdnsTestClump instance
-      assert [] = Mdns.peers("MdnsTestClump", browse_opts ++ [port: port_a])
+        # Peer selection filters on clump and drops ourselves (port_a is
+        # ours), leaving no other MdnsTestClump instance
+        assert [] = Mdns.peers("MdnsTestClump", browse_opts ++ [port: port_a])
 
-      # The other instance is visible to its own clump's members
-      assert [%{port: ^port_b}] = Mdns.peers("OtherClump", browse_opts ++ [port: port_a])
+        # The other instance is visible to its own clump's members
+        assert [%{port: ^port_b}] = Mdns.peers("OtherClump", browse_opts ++ [port: port_a])
 
-      # An unknown clump finds nothing
-      assert [] = Mdns.peers("NoSuchClump", browse_opts)
+        # An unknown clump finds nothing
+        assert [] = Mdns.peers("NoSuchClump", browse_opts)
 
-      MdnsLite.remove_mdns_service(:baby_MdnsTestClump)
-      MdnsLite.remove_mdns_service(:baby_OtherClump)
+        MdnsLite.remove_mdns_service(:baby_MdnsTestClump)
+        MdnsLite.remove_mdns_service(:baby_OtherClump)
+      end)
     end
   end
 

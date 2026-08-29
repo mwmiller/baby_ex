@@ -61,6 +61,17 @@ defmodule Baby.Mdns do
   end
 
   @doc """
+  Withdraw a previously announced clump service
+
+  The inverse of `announce/2`: local peers will no longer see this clump
+  when browsing.
+  """
+  @spec deannounce(String.t()) :: :ok
+  def deannounce(clump_id) when is_binary(clump_id) do
+    :ok = MdnsLite.remove_mdns_service(String.to_atom("baby_" <> clump_id))
+  end
+
+  @doc """
   Browse the local network for announced bushbaby services
 
   Sends a PTR query for `<service>._tcp.local`, repeating it part-way

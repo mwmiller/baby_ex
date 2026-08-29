@@ -14,9 +14,17 @@ defmodule Baby.Application do
   config = [spool_dir: "~/.special_bamboo"]
   Baby.Application.start(:normal, config)
   ```
+
+  If any configured clump's port cannot be bound, the whole start fails with
+  `{:error, reason}` and any listeners that already came up are rolled back.
   """
 
   use Application
+
+  # Ranch acceptors per listener: plenty to keep handshakes moving without
+  # burning a process per socket
+  @ranch_acceptors 100
+  @ranch_transport :ranch_tcp
 
   @impl true
   def start(type, args \\ [])
@@ -37,48 +45,35 @@ defmodule Baby.Application do
       end
     end
 
-    per_clump =
+    setups =
       clumps
       |> clumps_setup()
       |> tap(&maybe_start_mdns_lite/1)
-      |> Enum.reduce([], fn clump, a ->
-        %{
-          port: port,
-          identity: identity,
-          clump_id: clump_id,
-          cryouts: cryouts,
-          announce: announce
-        } = clump
 
-        # The configured identity must exist
-        :ranch.start_listener(
-          String.to_atom("baby_" <> clump_id),
-          :ranch_tcp,
-          [port: port],
-          [max_connections: clump.max_connections],
-          Baby.Connection,
-          identity: identity,
-          clump_id: clump_id
-        )
+    case start_clumps(setups) do
+      {:ok, started} ->
+        per_clump = Enum.map(started, &monitor_spec/1)
+        opts = [strategy: :one_for_one, name: Baby.Supervisor]
 
-        maybe_announce(announce, clump_id, port)
+        children = [Baby.Connection.Registry, Baby.Log.Acceptor, Baby.Log.Writer] ++ per_clump
 
-        [
-          Supervisor.child_spec(
-            {Baby.Monitor,
-             %{cryouts: cryouts, identity: identity, clump_id: clump_id, port: port}},
-            id: String.to_atom(clump_id)
-          )
-          | a
-        ]
-      end)
+        case Supervisor.start_link(children, opts) do
+          {:ok, pid} ->
+            {:ok, pid}
 
-    opts = [strategy: :one_for_one, name: Baby.Supervisor]
+          {:error, reason} ->
+            # The supervisor tree failed to come up; undo the listeners we
+            # bound so a retry does not trip over "address already in use"
+            stop_clumps(started)
+            {:error, reason}
+        end
 
-    Supervisor.start_link(
-      [Baby.Connection.Registry, Baby.Log.Acceptor, Baby.Log.Writer] ++ per_clump,
-      opts
-    )
+      {:error, reason, started} ->
+        # A clump could not bind its port: stop whatever listeners did come
+        # up and fail the whole start rather than leave a half-configured app
+        stop_clumps(started)
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -92,6 +87,78 @@ defmodule Baby.Application do
       restart: :permanent,
       shutdown: 500
     }
+  end
+
+  # Bind every clump's listener, stopping at the first failure.  Returns the
+  # clumps whose listeners did come up, so a failed start can roll them back.
+  defp start_clumps(setups) do
+    Enum.reduce_while(setups, {:ok, []}, fn clump, {:ok, started} ->
+      %{port: port, clump_id: clump_id, announce: announce} = clump
+
+      case start_listener(clump) do
+        {:ok, _ref} ->
+          maybe_announce(announce, clump_id, port)
+          {:cont, {:ok, [clump | started]}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason, started}}
+      end
+    end)
+  end
+
+  # Bind and serve a listener for one configured clump.  The /6 form splits
+  # ranch's listener concerns into three groups so nothing is silently folded
+  # into the wrong bucket:
+  #   - acceptors + transport (positional)
+  #   - transport options (socket + ranch listener opts as a map)
+  #   - protocol options (handed to Baby.Connection as its handler args)
+  defp start_listener(clump) do
+    ref = String.to_atom("baby_" <> clump.clump_id)
+
+    transport_opts = %{
+      socket_opts: [port: clump.port],
+      max_connections: clump.max_connections
+    }
+
+    protocol_opts = [identity: clump.identity, clump_id: clump.clump_id]
+
+    case :ranch.start_listener(
+           ref,
+           @ranch_acceptors,
+           @ranch_transport,
+           transport_opts,
+           Baby.Connection,
+           protocol_opts
+         ) do
+      {:ok, _pid} -> {:ok, ref}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # The monitor child spec for one bound clump
+  defp monitor_spec(clump) do
+    Supervisor.child_spec(
+      {Baby.Monitor,
+       %{
+         cryouts: clump.cryouts,
+         identity: clump.identity,
+         clump_id: clump.clump_id,
+         port: clump.port
+       }},
+      id: String.to_atom(clump.clump_id)
+    )
+  end
+
+  # Roll back the listeners (and any announcements) for clumps that already
+  # bound, used when a later clump or the supervisor fails to come up
+  defp stop_clumps(started) do
+    Enum.each(started, fn clump ->
+      :ranch.stop_listener(String.to_atom("baby_" <> clump.clump_id))
+
+      if clump.announce != false do
+        Baby.Mdns.deannounce(clump.clump_id)
+      end
+    end)
   end
 
   defp clumps_setup(clumps, acc \\ [])
