@@ -73,6 +73,14 @@ running without that listener. Listeners that did bind before the failure --
 and any mDNS announcements they made -- are rolled back, so retrying the
 same configuration succeeds once the port is freed.
 
+A clump may also configure `port: 0` to bind an ephemeral, OS-assigned port.
+The actual bound port is resolved after the listener comes up and is used for
+mDNS announcements and for filtering the node's own advertised service out of
+meta-cryout discovery, so an ephemeral listener can still participate in
+local network rendezvous (and other peers' meta cryouts will find it). With
+no `announce` and no `mdns` cryout, an ephemeral port simply opens no fixed
+inbound listener.
+
 ## Local network discovery (mDNS)
 
 Clumps can advertise themselves to peers on the local network and can find

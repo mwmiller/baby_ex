@@ -93,10 +93,15 @@ defmodule Baby.Application do
   # clumps whose listeners did come up, so a failed start can roll them back.
   defp start_clumps(setups) do
     Enum.reduce_while(setups, {:ok, []}, fn clump, {:ok, started} ->
-      %{port: port, clump_id: clump_id, announce: announce} = clump
+      %{clump_id: clump_id, announce: announce} = clump
 
       case start_listener(clump) do
-        {:ok, _ref} ->
+        {:ok, ref} ->
+          # A clump may bind an ephemeral port (port 0); resolve the actual
+          # port ranch assigned so that mDNS announcements and cryout
+          # self-filtering carry a real, connectable port rather than 0.
+          port = :ranch.get_port(ref) || clump.port
+          clump = %{clump | port: port}
           maybe_announce(announce, clump_id, port)
           {:cont, {:ok, [clump | started]}}
 
