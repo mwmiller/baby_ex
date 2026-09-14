@@ -38,14 +38,25 @@ defmodule Baby.Mdns do
 
   Requires that the `:mdns_lite` application has been started.  The
   advertised instance name defaults to "<hostname>-<clump_id>" and may
-  be overridden with the `:instance` option.
+  be overridden with the `:instance` option.  An `:owner` option (the
+  clump identity's public key, base62) is included in the TXT record so
+  peers can see who operates the instance before connecting.
 
       Baby.Mdns.announce("Quagga", 8483)
       Baby.Mdns.announce("Quagga", 8483, instance: "matt's quagga")
+      Baby.Mdns.announce("Quagga", 8483, owner: "1Aa23...")
   """
   @spec announce(String.t(), :inet.port_number(), Keyword.t()) :: :ok
   def announce(clump_id, port, opts \\ []) when is_binary(clump_id) and is_integer(port) do
     instance = Keyword.get(opts, :instance, default_instance(clump_id))
+
+    txt_payload = %{"clump_id" => clump_id}
+
+    txt_payload =
+      case Keyword.get(opts, :owner) do
+        nil -> txt_payload
+        owner -> Map.put(txt_payload, "owner", owner)
+      end
 
     service = %{
       id: String.to_atom("baby_" <> clump_id),
@@ -53,7 +64,7 @@ defmodule Baby.Mdns do
       protocol: @service_protocol,
       transport: "tcp",
       port: port,
-      txt_payload: %{clump_id: clump_id}
+      txt_payload: txt_payload
     }
 
     :ok = MdnsLite.add_mdns_service(service)

@@ -93,7 +93,7 @@ defmodule Baby.Application do
   # clumps whose listeners did come up, so a failed start can roll them back.
   defp start_clumps(setups) do
     Enum.reduce_while(setups, {:ok, []}, fn clump, {:ok, started} ->
-      %{clump_id: clump_id, announce: announce} = clump
+      %{announce: announce} = clump
 
       case start_listener(clump) do
         {:ok, ref} ->
@@ -102,7 +102,7 @@ defmodule Baby.Application do
           # self-filtering carry a real, connectable port rather than 0.
           port = :ranch.get_port(ref) || clump.port
           clump = %{clump | port: port}
-          maybe_announce(announce, clump_id, port)
+          maybe_announce(announce, clump)
           {:cont, {:ok, [clump | started]}}
 
         {:error, reason} ->
@@ -205,13 +205,22 @@ defmodule Baby.Application do
   defp mdns_cryout?(cryouts), do: Enum.any?(cryouts, &Keyword.has_key?(&1, :mdns))
 
   # `announce` may be `true` or a keyword list of `Baby.Mdns.announce/3`
-  # options
-  defp maybe_announce(false, _, _), do: :ok
+  # options.  The clump's controlling identity is always announced as the
+  # canonical base62 owner key so peers can identify the operator.
+  defp maybe_announce(false, _), do: :ok
 
-  defp maybe_announce(announce, clump_id, port) when is_list(announce),
-    do: Baby.Mdns.announce(clump_id, port, announce)
+  defp maybe_announce(announce, clump) when is_list(announce) do
+    Baby.Mdns.announce(clump.clump_id, clump.port, announce ++ [owner: owner_key(clump)])
+  end
 
-  defp maybe_announce(_, clump_id, port), do: Baby.Mdns.announce(clump_id, port)
+  defp maybe_announce(_, clump), do: Baby.Mdns.announce(clump.clump_id, clump.port, owner: owner_key(clump))
+
+  defp owner_key(clump) do
+    case Baobab.Identity.key(clump.identity, :public) do
+      :error -> nil
+      key -> Baobab.Identity.as_base62(key)
+    end
+  end
 
   defp max_connections(clump) do
     case Keyword.get(clump, :max_connections) || Application.get_env(:baby, :max_connections) do
