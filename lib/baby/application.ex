@@ -111,16 +111,17 @@ defmodule Baby.Application do
     end)
   end
 
-  # Bind and serve a listener for one configured clump.  The /6 form splits
-  # ranch's listener concerns into three groups so nothing is silently folded
+  # Bind and serve a listener for one configured clump.  The ranch 2.x form
+  # splits listener concerns into three groups so nothing is silently folded
   # into the wrong bucket:
-  #   - acceptors + transport (positional)
-  #   - transport options (socket + ranch listener opts as a map)
+  #   - transport (positional)
+  #   - transport options (acceptors, socket + ranch listener opts as a map)
   #   - protocol options (handed to Baby.Connection as its handler args)
   defp start_listener(clump) do
     ref = String.to_atom("baby_" <> clump.clump_id)
 
     transport_opts = %{
+      num_acceptors: @ranch_acceptors,
       socket_opts: [port: clump.port],
       max_connections: clump.max_connections
     }
@@ -129,7 +130,6 @@ defmodule Baby.Application do
 
     case :ranch.start_listener(
            ref,
-           @ranch_acceptors,
            @ranch_transport,
            transport_opts,
            Baby.Connection,
@@ -213,7 +213,8 @@ defmodule Baby.Application do
     Baby.Mdns.announce(clump.clump_id, clump.port, announce ++ [owner: owner_key(clump)])
   end
 
-  defp maybe_announce(_, clump), do: Baby.Mdns.announce(clump.clump_id, clump.port, owner: owner_key(clump))
+  defp maybe_announce(_, clump),
+    do: Baby.Mdns.announce(clump.clump_id, clump.port, owner: owner_key(clump))
 
   defp owner_key(clump) do
     case Baobab.Identity.key(clump.identity, :public) do

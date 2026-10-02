@@ -88,8 +88,11 @@ defmodule Baby.Mdns do
   Sends a PTR query for `<service>._tcp.local`, repeating it part-way
   through the window to tolerate lost datagrams and responders that
   are still starting up, and collects responses until `:timeout`
-  milliseconds have passed (default: 1000).  Returns all discovered
-  instances, including possibly our own.
+  milliseconds have passed (default: 1000).  The query is sent once
+  per up network interface so multi-homed hosts (e.g. behind a VPN
+  whose tunnel holds the default multicast route) still reach LAN
+  responders.  Returns all discovered instances, including possibly
+  our own.
   """
   @spec browse(Keyword.t()) :: [peer()]
   def browse(opts \\ []) do
@@ -99,6 +102,7 @@ defmodule Baby.Mdns do
     # Loopback delivery is enabled so that responders on this same host
     # hear the query; they reply unicast to our ephemeral port
     # (RFC 6762 section 6), so no multicast group membership is needed.
+    # The query itself goes out once per up interface (see send_query/2).
     {:ok, sock} =
       :gen_udp.open(0, [:binary, active: true, multicast_ttl: 255, multicast_loop: true])
 
@@ -117,7 +121,7 @@ defmodule Baby.Mdns do
     # browses do not degenerate into two immediate sends)
     resend_at = start + min(div(timeout, 2), 750)
 
-    :ok = :gen_udp.send(sock, @mdns_group, @mdns_port, packet)
+    :ok = send_query(sock, packet)
     records = collect(sock, deadline, resend_at, packet)
     :gen_udp.close(sock)
 
@@ -223,6 +227,25 @@ defmodule Baby.Mdns do
     end)
   end
 
+  # Send the query once on every up IPv4 interface.  The default multicast
+  # route is not trustworthy on multi-homed hosts: a VPN tunnel that owns
+  # the route sends the datagram into the tunnel, where it reaches neither
+  # the LAN nor responders on this host.
+  defp send_query(sock, packet) do
+    sources =
+      case Enum.reject(our_ipv4s(), &match?({127, _, _, _}, &1)) do
+        [] -> [nil]
+        ips -> ips
+      end
+
+    Enum.each(sources, fn ip ->
+      if ip, do: :ok = :inet.setopts(sock, multicast_if: ip)
+      :ok = :gen_udp.send(sock, @mdns_group, @mdns_port, packet)
+    end)
+
+    :ok
+  end
+
   defp collect(sock, deadline, resend_at, packet) do
     now = System.monotonic_time(:millisecond)
 
@@ -245,7 +268,7 @@ defmodule Baby.Mdns do
           if resend_at <= now or resend_at > deadline do
             []
           else
-            :ok = :gen_udp.send(sock, @mdns_group, @mdns_port, packet)
+            :ok = send_query(sock, packet)
             collect(sock, deadline, :infinity, packet)
           end
       end

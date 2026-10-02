@@ -4,7 +4,7 @@ defmodule Baby.MixProject do
   def project do
     [
       app: :baby,
-      version: "0.42.1",
+      version: "0.43.0",
       elixir: "~> 1.18",
       name: "Baby",
       source_url: "https://github.com/mwmiller/baby_ex",
@@ -49,8 +49,8 @@ defmodule Baby.MixProject do
       # Third-party
       {:cbor, "~> 1.0"},
       {:mdns_lite, "~> 0.9"},
-      {:ranch, "~> 1.8"},
-      {:replayq, "~> 0.3.7"},
+      {:ranch, "~> 2.3"},
+      {:replayq, "~> 0.5"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
